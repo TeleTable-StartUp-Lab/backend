@@ -35,7 +35,7 @@ COPY --from=builder /app/target/release/backend .
 COPY --from=builder /app/migrations ./migrations
 
 # Expose port
-EXPOSE 3000
+EXPOSE 3003
 
 # Run the binary
 CMD ["./backend"]

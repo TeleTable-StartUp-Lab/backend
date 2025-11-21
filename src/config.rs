@@ -19,7 +19,8 @@ impl Config {
                 .unwrap_or_else(|_| "24".to_string())
                 .parse()
                 .unwrap_or(24),
-            server_address: env::var("SERVER_ADDRESS").unwrap_or_else(|_| "0.0.0.0:3000".to_string()),
+            server_address: env::var("SERVER_ADDRESS")
+                .unwrap_or_else(|_| "0.0.0.0:3003".to_string()),
         })
     }
 }

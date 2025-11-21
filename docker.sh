@@ -38,7 +38,7 @@ dev_start() {
     print_info "Starting development environment..."
     check_env_file
     docker-compose up -d
-    print_info "Services started. Backend available at http://localhost:3000"
+    print_info "Services started. Backend available at http://localhost:3003"
     print_info "View logs with: $0 logs"
 }
 

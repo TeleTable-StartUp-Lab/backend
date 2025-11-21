@@ -3,7 +3,7 @@
 # TeleTable API Test Script
 # This script tests all API endpoints
 
-BASE_URL="http://localhost:3000"
+BASE_URL="http://localhost:3003"
 TOKEN=""
 USER_ID=""
 DIARY_ID=""

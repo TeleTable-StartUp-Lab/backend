@@ -62,10 +62,10 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
-      SERVER_ADDRESS: 0.0.0.0:3000
+      SERVER_ADDRESS: 0.0.0.0:3003
       RUST_LOG: ${RUST_LOG:-warn,backend=info}
     ports:
-      - "${BACKEND_PORT:-3000}:3000"
+      - "${BACKEND_PORT:-3003}:3003"
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,7 +75,7 @@ services:
       - teletable_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      test: ["CMD", "curl", "-f", "http://localhost:3003/"]
       interval: 30s
       timeout: 10s
       retries: 3
