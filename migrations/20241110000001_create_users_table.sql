@@ -10,3 +10,19 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Create index on email for faster lookups
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+-- Insert an admin user record
+INSERT INTO users (
+    id,
+    name,
+    email,
+    password_hash,
+    role
+) VALUES (
+    gen_random_uuid(),
+    'Admin User',
+    'admin@teletable.com',
+    -- Replace 'your_secure_hashed_password' with the result of hashing the actual password.
+    '$2a$12$V86w3et3599PcMD42jh0SeryztjyS9UglXvGz.rp/dHbHSZcXSQsu', 
+    'admin' -- Sets the role to 'admin'
+);
