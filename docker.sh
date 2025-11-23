@@ -37,56 +37,56 @@ check_env_file() {
 dev_start() {
     print_info "Starting development environment..."
     check_env_file
-    docker-compose up -d
+    docker compose up -d
     print_info "Services started. Backend available at http://localhost:3003"
     print_info "View logs with: $0 logs"
 }
 
 dev_stop() {
     print_info "Stopping development environment..."
-    docker-compose down
+    docker compose down
 }
 
 dev_restart() {
     print_info "Restarting development environment..."
-    docker-compose restart
+    docker compose restart
 }
 
 prod_start() {
     print_info "Starting production environment..."
     check_env_file
-    docker-compose -f docker-compose.prod.yml up -d
+    docker compose -f docker-compose.prod.yml up -d
     print_info "Production services started."
 }
 
 prod_stop() {
     print_info "Stopping production environment..."
-    docker-compose -f docker-compose.prod.yml down
+    docker compose -f docker-compose.prod.yml down
 }
 
 show_logs() {
-    docker-compose logs -f "${@:1}"
+    docker compose logs -f "${@:1}"
 }
 
 build() {
     print_info "Building Docker images..."
-    docker-compose build
+    docker compose build
 }
 
 clean() {
     print_info "Cleaning up Docker resources..."
-    docker-compose down -v
+    docker compose down -v
     print_warning "This removed all volumes including database data!"
 }
 
 shell() {
     print_info "Opening shell in backend container..."
-    docker-compose exec backend /bin/bash
+    docker compose exec backend /bin/bash
 }
 
 db_shell() {
     print_info "Opening PostgreSQL shell..."
-    docker-compose exec postgres psql -U teletable -d teletable_db
+    docker compose exec postgres psql -U teletable -d teletable_db
 }
 
 show_help() {
