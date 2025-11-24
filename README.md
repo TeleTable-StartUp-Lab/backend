@@ -1,8 +1,3 @@
-# TODO
-
-- [ ] User login & Management
-- [ ] Tagebuch- Funktionalitäten (einfügen, ändern, löschen) evtl. MD support
-
 # Routes
 
 ## Login
@@ -63,3 +58,54 @@ immer **Authorization: Bearer <jwt>**
 
 - `DELETE /diary`
   - loeschen eines tagebuch eintrags
+
+## Car Routes 
+- `GET /status`
+  ```json
+  {
+    systemHealth: "OK", //could be "OK", "WARNING", "ERROR", "OFFLINE"
+    batteryLevel: "0-100%",
+    driveMode: "MANUAL/AUTO/IDLE",
+    cargoStatus: "LOADING", // Status des transportierten Gegenstands: "LOADING", "IN_TRANSIT", "DELIVERY_CONFIRMED", "EMPTY"
+    lastRoute: ["Mensa", "Zimmer 101"],
+    position: "Zimmer 101....", // kann auch "UNKNOWN" sein falls manual drive aktiv ist
+    // TODO: Positioning muss noch genauer spizifiziert werden/
+    manualLockHolderName: "<name des lock hodlers>"
+  }
+  ```
+
+- `GET /nodes`
+  - Liste der waehlbaren routen 
+  ```json
+  {
+    nodes: ["Mensa", "Zimmer 101", "Zimmer 102", "..."]
+  }
+  ```
+- `POST /routes/select`
+  - waehle eine route aus
+  - nachdem der Tisch die Route bekommen hat begibt er sich zum start, idelt dort und geht dann sobald der start knopf auf dem roboter gedrueckt wurde zur destiniation. 
+  - Falls der Roboter in der Zwischenzeit auf Manual geschaltet wurde geht er immer zum letzten ziel hin
+  ```json
+  {
+    start: "Mensa",
+    destination: "Zimmer 101"
+  }
+
+  ```
+- `POST/DELETE /drive/lock`
+  - drive lock anfordern
+  - die Nuter id bei post aud dem auth header nehmen und den user als lock holder einspeichern
+  - nur der lock holder kann das lock loeschen
+  - Das Backend verwaltet den Lock-Zustand (manualLockHolderId), um zu gewährleisten, dass nur ein Nutzer die manuelle Steuerung innehat.
+  - Zuweisung: Das Backend prüft, ob der Lock frei ist (manualLockHolderId ist null).
+
+## Websocket 
+`ws://backend-server/ws/drive/manual`
+- wird geoffnet sobal man das drive lock angefordert hat, andere fahrer koennen in der Zeit nicht das lock holen oder auf automatic umstellen 
+- Verbindungsaufbau: Der Client öffnet den WebSocket nachdem er den Lock erfolgreich über HTTP angefordert hat.
+- Autorisierung: Die WebSocket-Verbindung wird nur zugelassen, wenn die UserID des verbindenden Clients mit der aktuellen manualLockHolderId übereinstimmt.
+- Kommandobeschränkung: Nur der Client, der den Lock hält, darf Steuerbefehle über diesen Socket senden.
+
+### Sicherheit 
+- Timer starten: Beim Zuweisen des Locks startet das Backend einen Timeout-Timer (z.B. 5 Sekunden).
+- Automatische Freigabe bei timerauslauf, wenn die website geoffnet ist kann der client ein Awake ping schicken. 
