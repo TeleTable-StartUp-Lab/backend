@@ -89,6 +89,7 @@ async fn main() {
     let admin_routes = Router::new()
         .route("/user", get(diary::login::get_user))
         .route("/user", post(diary::login::update_user))
+        .route("/user", delete(diary::login::delete_user))
         .route_layer(middleware::from_fn(admin_middleware))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),

@@ -45,6 +45,11 @@ pub struct UpdateUserRequest {
     pub role: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DeleteUserRequest {
+    pub id: Uuid,
+}
+
 pub async fn register(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<RegisterRequest>,
@@ -258,4 +263,29 @@ pub async fn update_user(
     })?;
 
     Ok(Json(updated_user.into()))
+}
+
+pub async fn delete_user(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<DeleteUserRequest>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    let result = sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(payload.id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+            )
+        })?;
+
+    if result.rows_affected() == 0 {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "User not found"})),
+        ));
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
