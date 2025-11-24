@@ -51,7 +51,13 @@ async fn main() {
 
     // Run migrations at runtime
     info!("Running database migrations...");
-    match sqlx::migrate!("./migrations").run(&db).await {
+    
+    // Load migrations from the filesystem so we don't need to rebuild the binary for every new migration
+    let migrator = sqlx::migrate::Migrator::new(std::path::Path::new("./migrations"))
+        .await
+        .expect("Failed to load migrations");
+
+    match migrator.run(&db).await {
         Ok(_) => info!("Migrations completed successfully"),
         Err(e) => {
             tracing::error!("Migration error: {}", e);
