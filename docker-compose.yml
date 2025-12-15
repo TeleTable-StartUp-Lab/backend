@@ -4,6 +4,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: teletable_postgres_dev
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-teletable}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password}
