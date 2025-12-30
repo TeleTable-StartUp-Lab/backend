@@ -7,6 +7,7 @@ pub struct Config {
     pub jwt_secret: String,
     pub jwt_expiry_hours: i64,
     pub server_address: String,
+    pub robot_api_key: String,
 }
 
 impl Config {
@@ -21,6 +22,8 @@ impl Config {
                 .unwrap_or(24),
             server_address: env::var("SERVER_ADDRESS")
                 .unwrap_or_else(|_| "0.0.0.0:3003".to_string()),
+            robot_api_key: env::var("ROBOT_API_KEY")
+                .unwrap_or_else(|_| "secret-robot-key".to_string()),
         })
     }
 }

@@ -15,15 +15,18 @@ mod database;
 mod diary;
 mod extractor;
 mod models;
+mod robot;
 
 use auth::{admin_middleware, auth_middleware};
 use config::Config;
 use database::{create_pool, create_redis_client};
+use robot::state::SharedRobotState;
 
 pub struct AppState {
     pub db: PgPool,
     pub redis: ConnectionManager,
     pub config: Config,
+    pub robot_state: SharedRobotState,
 }
 
 #[tokio::main]
@@ -66,7 +69,8 @@ async fn main() {
     }
 
     // Create shared state
-    let state = Arc::new(AppState { db, redis, config });
+    let robot_state = SharedRobotState::new();
+    let state = Arc::new(AppState { db, redis, config, robot_state });
 
     // Create public routes (no authentication required)
     let public_routes = Router::new()
@@ -96,11 +100,28 @@ async fn main() {
             auth_middleware,
         ));
 
+    // Create robot routes
+    let robot_routes = Router::new()
+        .route("/status", get(robot::routes::get_status))
+        .route("/nodes", get(robot::routes::get_nodes))
+        .route("/routes/select", post(robot::routes::select_route))
+        .route("/drive/lock", post(robot::routes::acquire_lock))
+        .route("/drive/lock", delete(robot::routes::release_lock))
+        .route("/table/state", post(robot::routes::update_robot_state))
+        .route("/table/event", post(robot::routes::handle_robot_event))
+        .route("/ws/robot/control", get(robot::routes::robot_control_ws))
+        .route("/ws/drive/manual", get(robot::routes::manual_control_ws));
+        // .route_layer(middleware::from_fn_with_state(
+        //     state.clone(),
+        //     auth_middleware,
+        // ));
+
     // Combine all routes
     let app = Router::new()
         .merge(public_routes)
         .merge(protected_routes)
         .merge(admin_routes)
+        .merge(robot_routes)
         .layer(CorsLayer::permissive())
         .with_state(state.clone());
 
