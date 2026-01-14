@@ -8,8 +8,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    extractor::AuthenticatedUser,
-    models::{DiaryEntry, DiaryResponse},
+    auth::extractor::AuthenticatedUser,
+    diary::models::{DiaryEntry, DiaryResponse},
     AppState,
 };
 

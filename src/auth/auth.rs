@@ -9,7 +9,7 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use serde_json::json;
 use std::sync::Arc;
 
-use crate::models::Claims;
+use crate::auth::models::Claims;
 use crate::AppState;
 
 pub fn hash_password(password: &str) -> Result<String, bcrypt::BcryptError> {

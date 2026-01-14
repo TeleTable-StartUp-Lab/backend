@@ -7,12 +7,12 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::{
+use crate::auth::{
     auth::{create_jwt, hash_password, verify_password},
     extractor::AuthenticatedUser,
     models::{User, UserResponse},
-    AppState,
 };
+use crate::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterRequest {
