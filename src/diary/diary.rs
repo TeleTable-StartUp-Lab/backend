@@ -3,40 +3,16 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
     auth::extractor::AuthenticatedUser,
-    diary::models::{DiaryEntry, DiaryResponse},
+    diary::models::{
+        CreateDiaryRequest, DeleteDiaryRequest, DiaryEntry, DiaryQuery, DiaryResponse,
+    },
     AppState,
 };
-
-#[derive(Debug, Deserialize)]
-pub struct CreateDiaryRequest {
-    pub working_minutes: i32,
-    pub text: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct UpdateDiaryRequest {
-    pub id: Uuid,
-    pub working_minutes: Option<i32>,
-    pub text: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct DiaryQuery {
-    pub id: Option<Uuid>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct DeleteDiaryRequest {
-    pub id: Uuid,
-}
-
 pub async fn create_or_update_diary(
     State(state): State<Arc<AppState>>,
     AuthenticatedUser(claims): AuthenticatedUser,

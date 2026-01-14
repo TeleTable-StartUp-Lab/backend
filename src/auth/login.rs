@@ -3,52 +3,18 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::auth::{
     auth::{create_jwt, hash_password, verify_password},
     extractor::AuthenticatedUser,
-    models::{User, UserResponse},
+    models::{
+        DeleteUserRequest, LoginRequest, LoginResponse, RegisterRequest, UpdateUserRequest, User,
+        UserQuery, UserResponse,
+    },
 };
 use crate::AppState;
-
-#[derive(Debug, Deserialize)]
-pub struct RegisterRequest {
-    pub name: String,
-    pub email: String,
-    pub password: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct LoginRequest {
-    pub email: String,
-    pub password: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct LoginResponse {
-    pub token: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UserQuery {
-    pub id: Option<Uuid>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UpdateUserRequest {
-    pub id: Uuid,
-    pub name: Option<String>,
-    pub email: Option<String>,
-    pub role: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct DeleteUserRequest {
-    pub id: Uuid,
-}
 
 pub async fn register(
     State(state): State<Arc<AppState>>,

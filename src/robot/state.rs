@@ -1,7 +1,7 @@
+use super::models::{RobotCommand, RobotState};
 use std::sync::Arc;
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
-use super::models::{RobotState, RobotCommand};
 
 #[derive(Debug, Clone)]
 pub struct SharedRobotState {
@@ -25,5 +25,11 @@ impl SharedRobotState {
             manual_lock: Arc::new(RwLock::new(None)),
             command_sender: tx,
         }
+    }
+}
+
+impl Default for SharedRobotState {
+    fn default() -> Self {
+        Self::new()
     }
 }

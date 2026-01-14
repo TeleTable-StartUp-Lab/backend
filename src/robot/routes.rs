@@ -1,4 +1,7 @@
-use super::models::{RobotCommand, RobotEvent, RobotState};
+use crate::robot::models::{
+    LastRoute, NodesResponse, RobotCommand, RobotEvent, RobotState, RouteSelectionRequest,
+    StatusResponse,
+};
 use crate::AppState;
 use axum::{
     extract::{
@@ -9,38 +12,8 @@ use axum::{
     Json,
 };
 use futures::stream::StreamExt;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
-
-#[derive(Debug, Serialize)]
-pub struct LastRoute {
-    pub start_node: String,
-    pub end_node: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StatusResponse {
-    pub system_health: String,
-    pub battery_level: u8,
-    pub drive_mode: String,
-    pub cargo_status: String,
-    pub last_route: Option<LastRoute>,
-    pub position: String,
-    pub manual_lock_holder_name: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct NodesResponse {
-    pub nodes: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct RouteSelectionRequest {
-    pub start: String,
-    pub destination: String,
-}
 
 pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let robot_state = state.robot_state.current_state.read().await;

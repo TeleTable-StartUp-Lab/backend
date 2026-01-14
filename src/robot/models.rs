@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -30,5 +30,37 @@ pub enum RobotCommand {
     #[serde(rename = "SET_MODE")]
     SetMode { mode: String },
     #[serde(rename = "DRIVE_COMMAND")]
-    DriveCommand { linear_velocity: f64, angular_velocity: f64 },
+    DriveCommand {
+        linear_velocity: f64,
+        angular_velocity: f64,
+    },
+}
+
+#[derive(Debug, Serialize)]
+pub struct LastRoute {
+    pub start_node: String,
+    pub end_node: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusResponse {
+    pub system_health: String,
+    pub battery_level: u8,
+    pub drive_mode: String,
+    pub cargo_status: String,
+    pub last_route: Option<LastRoute>,
+    pub position: String,
+    pub manual_lock_holder_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NodesResponse {
+    pub nodes: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RouteSelectionRequest {
+    pub start: String,
+    pub destination: String,
 }
