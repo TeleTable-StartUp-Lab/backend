@@ -1,4 +1,14 @@
-# Development Dockerfile
+# Development Stage
+FROM rust:latest as dev
+WORKDIR /app
+# Install cargo-watch for hot-reloading
+RUN cargo install cargo-watch
+# Copy files (will be overridden by volume mount in compose)
+COPY . .
+# Default command
+CMD ["cargo", "watch", "-x", "run"]
+
+# Builder stage
 FROM rust:latest as builder
 
 WORKDIR /app

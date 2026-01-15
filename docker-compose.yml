@@ -43,6 +43,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: dev
     container_name: teletable_backend_dev
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-teletable}:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/${POSTGRES_DB:-teletable_db}
@@ -61,9 +62,9 @@ services:
     networks:
       - teletable_network
     volumes:
-      - ./src:/app/src
-      - ./migrations:/app/migrations
-    command: ./backend
+      - .:/app
+      - /app/target
+    command: cargo watch -x run
 
 volumes:
   postgres_data:
