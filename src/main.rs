@@ -97,19 +97,34 @@ async fn main() {
 
     // robot api routes (called by robot or public status)
     let robot_api_routes = Router::new()
-        .route("/status", get(robot::routes::get_status))
-        .route("/table/state", post(robot::routes::update_robot_state))
-        .route("/table/event", post(robot::routes::handle_robot_event))
-        .route("/ws/robot/control", get(robot::routes::robot_control_ws))
-        .route("/ws/drive/manual", get(robot::routes::manual_control_ws));
+        .route("/status", get(robot::client_routes::get_status))
+        .route(
+            "/table/state",
+            post(robot::robot_routes::update_robot_state),
+        )
+        .route(
+            "/table/event",
+            post(robot::robot_routes::handle_robot_event),
+        )
+        .route(
+            "/ws/robot/control",
+            get(robot::client_routes::robot_control_ws),
+        )
+        .route(
+            "/ws/drive/manual",
+            get(robot::client_routes::manual_control_ws),
+        );
 
     // robot control routes (called by authenticated user)
     let robot_control_routes = Router::new()
-        .route("/nodes", get(robot::routes::get_nodes))
-        .route("/routes/select", post(robot::routes::select_route))
-        .route("/drive/lock", post(robot::routes::acquire_lock))
-        .route("/drive/lock", delete(robot::routes::release_lock))
-        .route("/robot/check", get(robot::routes::check_robot_connection))
+        .route("/nodes", get(robot::client_routes::get_nodes))
+        .route("/routes/select", post(robot::client_routes::select_route))
+        .route("/drive/lock", post(robot::client_routes::acquire_lock))
+        .route("/drive/lock", delete(robot::client_routes::release_lock))
+        .route(
+            "/robot/check",
+            get(robot::client_routes::check_robot_connection),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TeleTable Robot Control Test</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .section {
+      border: 1px solid #ccc;
+      padding: 15px;
+      margin-bottom: 20px;
+      border-radius: 5px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    input {
+      width: 100%;
+      padding: 5px;
+      box-sizing: border-box;
+      margin-bottom: 10px;
+    }
+
+    button {
+      padding: 10px;
+      cursor: pointer;
+    }
+
+    .status-value {
+      font-weight: bold;
+    }
+
+    #logs {
+      height: 200px;
+      overflow-y: scroll;
+      background: #f0f0f0;
+      padding: 10px;
+      border: 1px solid #999;
+      font-family: monospace;
+    }
+
+    .control-pad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+      max-width: 200px;
+      margin: 0 auto;
+    }
+
+    .control-pad button {
+      padding: 20px;
+      font-size: 20px;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>TeleTable Robot Control Test</h1>
+
+  <div class="section">
+    <h2>Connection & Auth</h2>
+    <div class="grid">
+      <div>
+        <label>Backend URL</label>
+        <input type="text" id="backendUrl" value="http://localhost:3003">
+      </div>
+      <div>
+        <label>Email</label>
+        <input type="email" id="email" value="admin@teletable.com">
+      </div>
+      <div>
+        <label>Password</label>
+        <input type="password" id="password" value="password">
+      </div>
+    </div>
+    <button onclick="login()">Login</button>
+    <div id="authStatus" style="margin-top: 10px;">Not logged in</div>
+  </div>
+
+  <div class="section">
+    <h2>Robot Status</h2>
+    <div class="grid" id="statusGrid">
+      <div>Health: <span id="s_health" class="status-value">-</span></div>
+      <div>Battery: <span id="s_battery" class="status-value">-</span></div>
+      <div>Mode: <span id="s_mode" class="status-value">-</span></div>
+      <div>Position: <span id="s_pos" class="status-value">-</span></div>
+      <div>Lock Holder: <span id="s_lock" class="status-value">-</span></div>
+    </div>
+    <button onclick="fetchStatus()">Refresh Status</button>
+    <label><input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()"> Auto Refresh (1s)</label>
+  </div>
+
+  <div class="section">
+    <h2>Controls</h2>
+    <div style="margin-bottom: 10px;">
+      <button onclick="acquireLock()">Acquire Lock</button>
+      <button onclick="releaseLock()">Release Lock</button>
+      <button onclick="connectWs()">Connect WS</button>
+      <button onclick="disconnectWs()">Disconnect WS</button>
+    </div>
+
+    <div class="section">
+      <h3>Navigation & Route Selection</h3>
+      <div class="grid">
+        <div>
+          <label>Start Node</label>
+          <select id="startNode"></select>
+        </div>
+        <div>
+          <label>Destination Node</label>
+          <select id="destNode"></select>
+        </div>
+      </div>
+      <div style="margin-top: 10px;">
+        <button onclick="fetchNodes()">Refresh Nodes</button>
+        <button onclick="sendNavigateWs()">Navigate (WS)</button>
+        <button onclick="selectRouteHttp()">Select Route (HTTP)</button>
+        <button onclick="sendCancelWs()" style="background-color: #ffcccc;">Cancel (WS)</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Mode Control</h3>
+      <div class="grid">
+        <div>
+          <label>Mode</label>
+          <select id="modeSelect" style="width: 100%; padding: 5px;">
+            <option value="IDLE">IDLE</option>
+            <option value="MANUAL">MANUAL</option>
+            <option value="NAVIGATING">NAVIGATING</option>
+            <option value="ERROR">ERROR</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top: 10px;">
+        <button onclick="sendSetModeWs()">Set Mode (WS)</button>
+      </div>
+    </div>
+
+    <div class="control-pad">
+      <button onmousedown="startDrive(1.0, 1.0)" onmouseup="stopDrive()">↖</button>
+      <button onmousedown="startDrive(1.0, 0)" onmouseup="stopDrive()">↑</button>
+      <button onmousedown="startDrive(1.0, -1.0)" onmouseup="stopDrive()">↗</button>
+
+      <button onmousedown="startDrive(0, 1.0)" onmouseup="stopDrive()">←</button>
+      <button onclick="stopDrive()">●</button>
+      <button onmousedown="startDrive(0, -1.0)" onmouseup="stopDrive()">→</button>
+
+      <button onmousedown="startDrive(-1.0, 1.0)" onmouseup="stopDrive()">↙</button>
+      <button onmousedown="startDrive(-1.0, 0)" onmouseup="stopDrive()">↓</button>
+      <button onmousedown="startDrive(-1.0, -1.0)" onmouseup="stopDrive()">↘</button>
+    </div>
+
+    <div style="margin-top: 10px; text-align: center;">
+      <label>Linear Speed: <span id="linSpeedVal">0.5</span></label>
+      <input type="range" min="0.1" max="1.0" step="0.1" value="0.5" id="linearSpeed" oninput="updateSpeedDisp()">
+      <label>Angular Speed: <span id="angSpeedVal">1.0</span></label>
+      <input type="range" min="0.1" max="2.0" step="0.1" value="1.0" id="angularSpeed" oninput="updateSpeedDisp()">
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Logs</h2>
+    <div id="logs"></div>
+  </div>
+
+  <script>
+    let token = localStorage.getItem('teletable_token') || '';
+    let ws = null;
+    let refreshInterval = null;
+
+    function log(msg) {
+      const el = document.getElementById('logs');
+      el.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    if (token) {
+      document.getElementById('authStatus').innerText = 'Has token (stored)';
+    }
+
+    async function login() {
+      const url = document.getElementById('backendUrl').value;
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      try {
+        const res = await fetch(`${url}/login`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({email, password})
+        });
+        const data = await res.json();
+        if (res.ok) {
+          token = data.token;
+          localStorage.setItem('teletable_token', token);
+          document.getElementById('authStatus').innerText = 'Logged in successfully';
+          log('Login successful');
+        } else {
+          log(`Login failed: ${data.error}`);
+          alert('Login failed: ' + data.error);
+        }
+      } catch (e) {
+        log(`Login error: ${e}`);
+      }
+    }
+
+    async function fetchStatus() {
+      const url = document.getElementById('backendUrl').value;
+      try {
+        const res = await fetch(`${url}/status`);
+        const data = await res.json();
+        document.getElementById('s_health').innerText = data.systemHealth;
+        document.getElementById('s_battery').innerText = data.batteryLevel + '%';
+        document.getElementById('s_mode').innerText = data.driveMode;
+        document.getElementById('s_pos').innerText = data.position || 'Unknown';
+        document.getElementById('s_lock').innerText = data.manualLockHolderName || 'None';
+      } catch (e) {
+        // log(`Status fetch error: ${e}`);
+      }
+    }
+
+    function toggleAutoRefresh() {
+      if (document.getElementById('autoRefresh').checked) {
+        fetchStatus();
+        refreshInterval = setInterval(fetchStatus, 1000);
+      } else {
+        clearInterval(refreshInterval);
+      }
+    }
+
+    async function acquireLock() {
+      if (!token) return alert('Login first');
+      const url = document.getElementById('backendUrl').value;
+      try {
+        const res = await fetch(`${url}/drive/lock`, {
+          method: 'POST',
+          headers: {'Authorization': `Bearer ${token}`}
+        });
+        if (res.ok) log('Lock acquired');
+        else log('Failed to acquire lock');
+      } catch (e) {log(e);}
+    }
+
+    async function releaseLock() {
+      if (!token) return alert('Login first');
+      const url = document.getElementById('backendUrl').value;
+      try {
+        const res = await fetch(`${url}/drive/lock`, {
+          method: 'DELETE',
+          headers: {'Authorization': `Bearer ${token}`}
+        });
+        if (res.ok) log('Lock released');
+        else log('Failed to release lock');
+      } catch (e) {log(e);}
+    }
+
+    function connectWs() {
+      if (!token) return alert('Login first');
+      if (ws) ws.close();
+
+      const url = document.getElementById('backendUrl').value.replace('http', 'ws');
+      ws = new WebSocket(`${url}/ws/drive/manual?token=${token}`);
+
+      ws.onopen = () => log('WS Connected');
+      ws.onclose = () => log('WS Disconnected');
+      ws.onerror = (e) => log(`WS Error: ${e}`);
+      ws.onmessage = (msg) => log(`WS Msg: ${msg.data}`);
+    }
+
+    function disconnectWs() {
+      if (ws) ws.close();
+    }
+
+    function sendCmd(cmd) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return; // log('WS not open');
+      ws.send(JSON.stringify(cmd));
+    }
+
+    function startDrive(linDir, angDir) {
+      const linSpeed = parseFloat(document.getElementById('linearSpeed').value);
+      const angSpeed = parseFloat(document.getElementById('angularSpeed').value);
+
+      sendCmd({
+        command: 'DRIVE_COMMAND',
+        linear_velocity: linDir * linSpeed,
+        angular_velocity: angDir * angSpeed
+      });
+    }
+
+    function stopDrive() {
+      sendCmd({
+        command: 'DRIVE_COMMAND',
+        linear_velocity: 0.0,
+        angular_velocity: 0.0
+      });
+    }
+
+    function sendNavigateWs() {
+      const start = document.getElementById('startNode').value;
+      const dest = document.getElementById('destNode').value;
+      sendCmd({
+        command: 'NAVIGATE',
+        start: start,
+        destination: dest
+      });
+    }
+
+    function sendCancelWs() {
+      sendCmd({
+        command: 'CANCEL'
+      });
+    }
+
+    function sendSetModeWs() {
+      const mode = document.getElementById('modeSelect').value;
+      sendCmd({
+        command: 'SET_MODE',
+        mode: mode
+      });
+    }
+
+    async function selectRouteHttp() {
+      if (!token) return alert('Login first');
+      const url = document.getElementById('backendUrl').value;
+      const start = document.getElementById('startNode').value;
+      const dest = document.getElementById('destNode').value;
+
+      try {
+        const res = await fetch(`${url}/routes/select`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({start, destination: dest})
+        });
+        const data = await res.json();
+        if (res.ok) log(`Route selected: ${data.message}`);
+        else log(`Route error: ${data.message || data.error}`);
+      } catch (e) {log(e);}
+    }
+
+    async function fetchNodes() {
+      if (!token) return alert('Login first');
+      const url = document.getElementById('backendUrl').value;
+      try {
+        const res = await fetch(`${url}/nodes`, {
+          headers: {'Authorization': `Bearer ${token}`}
+        });
+        const data = await res.json();
+        if (res.ok && data.nodes) {
+          const startSel = document.getElementById('startNode');
+          const destSel = document.getElementById('destNode');
+          startSel.innerHTML = '';
+          destSel.innerHTML = '';
+
+          data.nodes.forEach(node => {
+            startSel.add(new Option(node, node));
+            destSel.add(new Option(node, node));
+          });
+          log(`Fetched ${data.nodes.length} nodes`);
+        } else {
+          log('Failed to fetch nodes');
+        }
+      } catch (e) {
+        log(`Node fetch error: ${e}`);
+      }
+    }
+
+    function updateSpeedDisp() {
+      document.getElementById('linSpeedVal').innerText = document.getElementById('linearSpeed').value;
+      document.getElementById('angSpeedVal').innerText = document.getElementById('angularSpeed').value;
+    }
+  </script>
+</body>
+
+</html>

@@ -1,8 +1,7 @@
 use crate::auth::auth::decode_jwt;
 use crate::auth::models::Claims;
 use crate::robot::models::{
-    LastRoute, NodesResponse, RobotCommand, RobotEvent, RobotState, RouteSelectionRequest,
-    StatusResponse,
+    LastRoute, NodesResponse, RobotCommand, RouteSelectionRequest, StatusResponse,
 };
 use crate::AppState;
 use axum::{
@@ -10,7 +9,7 @@ use axum::{
         ws::{Message, WebSocket},
         Query, State, WebSocketUpgrade,
     },
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::IntoResponse,
     Extension, Json,
 };
@@ -64,60 +63,6 @@ pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse
         manual_lock_holder_name,
     };
     Json(status)
-}
-
-pub async fn update_robot_state(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Json(payload): Json<RobotState>,
-) -> impl IntoResponse {
-    let api_key = headers.get("X-Api-Key").and_then(|v| v.to_str().ok());
-
-    if api_key != Some(&state.config.robot_api_key) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({
-                "status": "error",
-                "message": "Invalid API Key"
-            })),
-        )
-            .into_response();
-    }
-
-    let mut current_state = state.robot_state.current_state.write().await;
-    *current_state = Some(payload);
-
-    Json(serde_json::json!({
-        "status": "success"
-    }))
-    .into_response()
-}
-
-pub async fn handle_robot_event(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Json(payload): Json<RobotEvent>,
-) -> impl IntoResponse {
-    let api_key = headers.get("X-Api-Key").and_then(|v| v.to_str().ok());
-
-    if api_key != Some(&state.config.robot_api_key) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({
-                "status": "error",
-                "message": "Invalid API Key"
-            })),
-        )
-            .into_response();
-    }
-
-    tracing::info!("Received robot event: {:?}", payload);
-    // TODO: Handle specific events (e.g. notify users)
-
-    Json(serde_json::json!({
-        "status": "success"
-    }))
-    .into_response()
 }
 
 pub async fn robot_control_ws(
@@ -202,7 +147,7 @@ pub async fn get_nodes(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     let robot_url = state.robot_state.robot_url.read().await;
     if let Some(url) = &*robot_url {
         let client = reqwest::Client::new();
-        match client.get(format!("{}/nodes", url)).send().await {
+        match client.get(format!("{url}/nodes")).send().await {
             Ok(resp) => {
                 if resp.status().is_success() {
                     // Assume robot returns { "nodes": ["Node1", "Node2"] }
@@ -324,7 +269,7 @@ pub async fn check_robot_connection(State(state): State<Arc<AppState>>) -> impl 
 
     if let Some(url) = &*robot_url {
         let client = reqwest::Client::new();
-        match client.get(format!("{}/health", url)).send().await {
+        match client.get(format!("{url}/health")).send().await {
             Ok(resp) => {
                 let status = resp.status();
                 Json(serde_json::json!({
