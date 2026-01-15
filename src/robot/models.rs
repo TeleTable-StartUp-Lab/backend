@@ -54,7 +54,7 @@ pub struct StatusResponse {
     pub manual_lock_holder_name: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct NodesResponse {
     pub nodes: Vec<String>,
 }

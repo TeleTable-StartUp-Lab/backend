@@ -8,6 +8,8 @@ pub struct SharedRobotState {
     pub current_state: Arc<RwLock<Option<RobotState>>>,
     pub manual_lock: Arc<RwLock<Option<LockInfo>>>,
     pub command_sender: broadcast::Sender<RobotCommand>,
+    pub robot_url: Arc<RwLock<Option<String>>>,
+    pub cached_nodes: Arc<RwLock<Option<Vec<String>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -24,6 +26,8 @@ impl SharedRobotState {
             current_state: Arc::new(RwLock::new(None)),
             manual_lock: Arc::new(RwLock::new(None)),
             command_sender: tx,
+            cached_nodes: Arc::new(RwLock::new(None)),
+            robot_url: Arc::new(RwLock::new(None)),
         }
     }
 }

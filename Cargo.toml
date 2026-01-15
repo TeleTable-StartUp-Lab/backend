@@ -20,3 +20,4 @@ uuid = { version = "1.11", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 serde_json = "1.0"
 async-trait = "0.1"
+reqwest = { version = "0.13.1", features = ["json"] }

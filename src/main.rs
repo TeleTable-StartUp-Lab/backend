@@ -56,14 +56,16 @@ async fn main() {
         }
     }
 
-    // Create shared state
     let robot_state = SharedRobotState::new();
     let state = Arc::new(AppState {
         db,
         redis,
         config,
-        robot_state,
+        robot_state: robot_state.clone(),
     });
+
+    // Start UDP discovery service
+    tokio::spawn(robot::discovery::run_discovery_service(robot_state));
 
     // public routes (no authentication required)
     let public_routes = Router::new()
@@ -93,28 +95,33 @@ async fn main() {
             auth_middleware,
         ));
 
-    // robot routes
-    let robot_routes = Router::new()
+    // robot api routes (called by robot or public status)
+    let robot_api_routes = Router::new()
         .route("/status", get(robot::routes::get_status))
-        .route("/nodes", get(robot::routes::get_nodes))
-        .route("/routes/select", post(robot::routes::select_route))
-        .route("/drive/lock", post(robot::routes::acquire_lock))
-        .route("/drive/lock", delete(robot::routes::release_lock))
         .route("/table/state", post(robot::routes::update_robot_state))
         .route("/table/event", post(robot::routes::handle_robot_event))
         .route("/ws/robot/control", get(robot::routes::robot_control_ws))
         .route("/ws/drive/manual", get(robot::routes::manual_control_ws));
-    // .route_layer(middleware::from_fn_with_state(
-    //     state.clone(),
-    //     auth_middleware,
-    // ));
+
+    // robot control routes (called by authenticated user)
+    let robot_control_routes = Router::new()
+        .route("/nodes", get(robot::routes::get_nodes))
+        .route("/routes/select", post(robot::routes::select_route))
+        .route("/drive/lock", post(robot::routes::acquire_lock))
+        .route("/drive/lock", delete(robot::routes::release_lock))
+        .route("/robot/check", get(robot::routes::check_robot_connection))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     // Combine all routes
     let app = Router::new()
         .merge(public_routes)
         .merge(protected_routes)
         .merge(admin_routes)
-        .merge(robot_routes)
+        .merge(robot_api_routes)
+        .merge(robot_control_routes)
         .layer(CorsLayer::permissive())
         .with_state(state.clone());
 
