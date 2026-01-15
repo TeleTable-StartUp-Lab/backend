@@ -38,16 +38,9 @@ impl From<DiaryEntry> for DiaryResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateDiaryRequest {
+    pub id: Option<Uuid>,
     pub working_minutes: i32,
     pub text: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct UpdateDiaryRequest {
-    pub id: Uuid,
-    pub working_minutes: Option<i32>,
-    pub text: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

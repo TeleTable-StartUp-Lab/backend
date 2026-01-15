@@ -13,6 +13,7 @@ use crate::{
     },
     AppState,
 };
+
 pub async fn create_or_update_diary(
     State(state): State<Arc<AppState>>,
     AuthenticatedUser(claims): AuthenticatedUser,
@@ -25,23 +26,62 @@ pub async fn create_or_update_diary(
         )
     })?;
 
-    let entry = sqlx::query_as::<_, DiaryEntry>(
-        "INSERT INTO diary_entries (id, owner, working_minutes, text) VALUES ($1, $2, $3, $4) RETURNING *",
-    )
-    .bind(Uuid::new_v4())
-    .bind(user_id)
-    .bind(payload.working_minutes)
-    .bind(&payload.text)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("Failed to create diary entry: {}", e)})),
+    let entry = if let Some(id) = payload.id {
+        sqlx::query_as::<_, DiaryEntry>(
+            r#"
+            UPDATE diary_entries
+            SET working_minutes = $1,
+                text = $2
+            WHERE id = $3 AND owner = $4
+            RETURNING *
+            "#,
         )
-    })?;
+        .bind(payload.working_minutes)
+        .bind(&payload.text)
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Diary entry not found" })),
+        ))?
+    } else {
+        sqlx::query_as::<_, DiaryEntry>(
+            r#"
+            INSERT INTO diary_entries (id, owner, working_minutes, text)
+            VALUES ($1, $2, $3, $4)
+            RETURNING *
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(user_id)
+        .bind(payload.working_minutes)
+        .bind(&payload.text)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+        })?
+    };
 
-    Ok((StatusCode::CREATED, Json(entry.into())))
+    Ok((
+        if payload.id.is_some() {
+            StatusCode::OK
+        } else {
+            StatusCode::CREATED
+        },
+        Json(entry.into()),
+    ))
 }
 
 pub async fn get_diary(
