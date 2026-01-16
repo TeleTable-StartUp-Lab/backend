@@ -7,7 +7,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::auth::{
-    auth::{create_jwt, hash_password, verify_password},
+    security::{create_jwt, hash_password, verify_password},
     extractor::AuthenticatedUser,
     models::{
         DeleteUserRequest, LoginRequest, LoginResponse, RegisterRequest, UpdateUserRequest, User,

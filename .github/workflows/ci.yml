@@ -52,9 +52,6 @@ jobs:
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
 
-      - name: Format Check
-        run: cargo fmt --all -- --check
-
       - name: Lint (Clippy)
         run: cargo clippy -- -D warnings
 

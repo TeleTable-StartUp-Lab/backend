@@ -1,2 +1,2 @@
-pub mod diary;
+pub mod handlers;
 pub mod models;

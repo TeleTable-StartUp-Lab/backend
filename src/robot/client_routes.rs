@@ -1,4 +1,4 @@
-use crate::auth::auth::decode_jwt;
+use crate::auth::security::decode_jwt;
 use crate::auth::models::Claims;
 use crate::robot::models::{
     LastRoute, NodesResponse, RobotCommand, RouteSelectionRequest, StatusResponse,

@@ -12,7 +12,7 @@ use sqlx::PgPool;
 use redis::aio::ConnectionManager;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
-use crate::auth::auth::{admin_middleware, auth_middleware};
+use crate::auth::security::{admin_middleware, auth_middleware};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -28,14 +28,14 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/", get(root))
         .route("/register", post(auth::login::register))
         .route("/login", post(auth::login::login))
-        .route("/diary/all", get(diary::diary::get_all_diaries));
+        .route("/diary/all", get(diary::handlers::get_all_diaries));
 
     // protected routes (authentication required)
     let protected_routes = Router::new()
         .route("/me", get(auth::login::get_me))
-        .route("/diary", post(diary::diary::create_or_update_diary))
-        .route("/diary", get(diary::diary::get_diary))
-        .route("/diary", delete(diary::diary::delete_diary))
+        .route("/diary", post(diary::handlers::create_or_update_diary))
+        .route("/diary", get(diary::handlers::get_diary))
+        .route("/diary", delete(diary::handlers::delete_diary))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
