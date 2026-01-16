@@ -1,0 +1,54 @@
+use backend::{create_router, AppState, Config, SharedRobotState};
+use sqlx::PgPool;
+use std::sync::Arc;
+
+#[allow(dead_code)]
+pub struct TestApp {
+    pub router: axum::Router,
+    pub db: PgPool,
+    pub state: Arc<AppState>,
+}
+
+pub async fn spawn_app(pool: PgPool) -> TestApp {
+    // Mock Redis or use a real one if available.
+    // For tests, we might skip redis if it's only for specific features not tested here,
+    // but AppState requires it.
+    // We'll assume a local redis is available or mock it via a wrapper if we could.
+    // Since we can't easily mock ConnectionManager, we'll try to connect to localhost:6379
+    // or use a separate test redis.
+
+    // For simplicity in this environment, we might fail if redis isn't there.
+    // Let's assume we can connect to standard redis or use a mocked object if we refactor AppState.
+    // Refactoring AppState to use a Trait for Redis would be better, but for now:
+    let redis_client = redis::Client::open("redis://127.0.0.1/").expect("Invalid Redis URL");
+    let redis = redis_client
+        .get_connection_manager()
+        .await
+        .expect("Failed to connect to Redis");
+
+    let config = Config {
+        database_url: "postgres://...".to_string(), // Overridden by logic elsewhere
+        redis_url: "redis://127.0.0.1/".to_string(),
+        jwt_secret: "test_secret".to_string(),
+        jwt_expiry_hours: 24,
+        server_address: "127.0.0.1:0".to_string(),
+        robot_api_key: "test_robot_api_key".to_string(),
+    };
+
+    let robot_state = SharedRobotState::new();
+
+    let state = Arc::new(AppState {
+        db: pool.clone(),
+        redis,
+        config,
+        robot_state: robot_state.clone(),
+    });
+
+    let router = create_router(state.clone());
+
+    TestApp {
+        router,
+        db: pool,
+        state,
+    }
+}

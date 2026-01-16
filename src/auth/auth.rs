@@ -114,3 +114,56 @@ pub async fn admin_middleware(req: Request, next: Next) -> Result<Response, impl
 
     Ok(next.run(req).await)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_password_hashing_and_verification() {
+        let password = "my_secure_password";
+        let hash = hash_password(password).expect("hashing failed");
+        
+        assert_ne!(password, hash);
+        assert!(verify_password(password, &hash).expect("verification failed"));
+        assert!(!verify_password("wrong_password", &hash).expect("verification failed"));
+    }
+
+    #[test]
+    fn test_jwt_creation_and_decoding() {
+        let secret = "super_secret_key";
+        let user_id = "123-456";
+        let name = "Test User";
+        let role = "user";
+        let expiry = 1;
+
+        let token = create_jwt(user_id, name, role, secret, expiry).expect("creation failed");
+        let claims = decode_jwt(&token, secret).expect("decoding failed");
+
+        assert_eq!(claims.sub, user_id);
+        assert_eq!(claims.name, name);
+        assert_eq!(claims.role, role);
+    }
+
+    #[test]
+    fn test_jwt_expiration_validation() {
+        let secret = "super_secret_key";
+        // Create a JWT manually with past expiration
+        let claims = Claims {
+            sub: "123".to_string(),
+            name: "test".to_string(),
+            role: "user".to_string(),
+            exp: (chrono::Utc::now().timestamp() - 3600) as usize, // 1 hour ago
+        };
+        
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        ).unwrap();
+
+        let result = decode_jwt(&token, secret);
+        assert!(result.is_err());
+    }
+}
+

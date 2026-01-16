@@ -69,7 +69,7 @@ impl From<DiaryEntry> for DiaryResponse {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CreateDiaryRequest {
     pub id: Option<Uuid>,
     pub working_minutes: i32,
@@ -81,7 +81,7 @@ pub struct DiaryQuery {
     pub id: Option<Uuid>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DeleteDiaryRequest {
     pub id: Uuid,
 }
