@@ -61,7 +61,7 @@ immer **Authorization: Bearer <jwt>**
 
 ## Car Routes
 
-- `GET /status`
+- `POST /status`
 
   ```json
   {
@@ -134,13 +134,18 @@ Der Roboter sendet regelmäßig (z.B. alle 1-5 Sekunden) seinen internen Zustand
 {
   "systemHealth": "OK",
   "batteryLevel": 85,
-  "driveMode": "AUTO",
-  "cargoStatus": "IN_TRANSIT",
-  "currentPosition": "Flur 1",
-  "lastNode": "Mensa",
-  "targetNode": "Zimmer 101"
+  "driveMode": "MANUAL",
+  "cargoStatus": "EMPTY",
+  "lastRoute": {
+    "start_node": "Office",
+    "end_node": "Kitchen"
+  },
+  "position": "Kitchen",
+  "manualLockHolderName": "Admin User"
 }
 ```
+
+- `driveMode` can be `["IDLE", "NAVIGATING", "MANUAL", "ERROR", "WAITING_FOR_UNLOAD", "WAITING_FOR_LOAD"]`
 
 ### 2. Command Polling / Stream (Robot <-> Backend)
 
@@ -149,9 +154,9 @@ Damit der Roboter weiß, was er tun soll (z.B. wenn ein User `/routes/select` au
 - **WebSocket (Empfohlen für Echtzeit)**
 - `ws://backend-server/ws/robot/control`
 - Das Backend pusht hier Befehle direkt an den Roboter:
-- `{ "command": "NAVIGATE", "start": "Mensa", "destination": "Zimmer 101" }`
-- `{ "command": "CANCEL" }`
-- `{ "command": "SET_MODE", "mode": "MANUAL" }`
+  - `{ "command": "NAVIGATE", "start": "Mensa", "destination": "Zimmer 101" }`
+  - `{ "command": "CANCEL" }`
+  - `{ "command": "SET_MODE", "mode": "MANUAL" }`
 
 ### 3. Event-Meldungen (Robot -> Backend)
 
