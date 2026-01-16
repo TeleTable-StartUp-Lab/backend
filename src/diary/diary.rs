@@ -9,7 +9,8 @@ use uuid::Uuid;
 use crate::{
     auth::extractor::AuthenticatedUser,
     diary::models::{
-        CreateDiaryRequest, DeleteDiaryRequest, DiaryEntry, DiaryQuery, DiaryResponse,
+        CreateDiaryRequest, DeleteDiaryRequest, DiaryEntry, DiaryEntryWithUser, DiaryQuery,
+        DiaryResponse, DiaryResponseWithUser,
     },
     AppState,
 };
@@ -135,6 +136,41 @@ pub async fn get_diary(
         let diary_responses: Vec<DiaryResponse> = entries.into_iter().map(|e| e.into()).collect();
         Ok(Json(serde_json::json!(diary_responses)))
     }
+}
+
+pub async fn get_all_diaries(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let entries = sqlx::query_as::<_, DiaryEntryWithUser>(
+        r#"
+        SELECT 
+            d.id, 
+            u.name AS owner, 
+            d.working_minutes, 
+            d.text, 
+            d.created_at, 
+            d.updated_at
+        FROM diary_entries d
+        INNER JOIN users u ON d.owner = u.id
+        ORDER BY d.created_at DESC
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+        )
+    })?;
+
+    // Map the results to your response DTO
+    let response: Vec<DiaryResponseWithUser> = entries
+        .into_iter()
+        .map(DiaryResponseWithUser::from)
+        .collect();
+
+    Ok(Json(serde_json::json!(response)))
 }
 
 pub async fn delete_diary(

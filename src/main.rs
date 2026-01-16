@@ -71,7 +71,8 @@ async fn main() {
     let public_routes = Router::new()
         .route("/", get(root))
         .route("/register", post(auth::login::register))
-        .route("/login", post(auth::login::login));
+        .route("/login", post(auth::login::login))
+        .route("/diary/all", get(diary::diary::get_all_diaries));
 
     // protected routes (authentication required)
     let protected_routes = Router::new()
