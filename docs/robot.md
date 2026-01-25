@@ -11,6 +11,10 @@ This document describes the **robot-related HTTP + WebSocket API** implemented i
 | POST     | `/table/state`                 | `X-Api-Key`  | Robot telemetry update (robot → backend)                            |
 | POST     | `/table/event`                 | `X-Api-Key`  | Robot event reporting (robot → backend)                             |
 | GET      | `/nodes`                       | JWT (Bearer) | Get robot nodes (cached; fetched from discovered robot HTTP server) |
+| GET      | `/routes`                      | JWT (Any)    | Get current route queue                                             |
+| POST     | `/routes`                      | JWT (Admin)  | Add route to queue                                                  |
+| DELETE   | `/routes/:id`                  | JWT (Admin)  | Remove route from queue                                             |
+| POST     | `/routes/optimize`             | JWT (Admin)  | Trigger route optimization                                          |
 | POST     | `/routes/select`               | JWT (Bearer) | Send `NAVIGATE` command (blocked while manual lock active)          |
 | POST     | `/drive/lock`                  | JWT (Bearer) | Acquire manual drive lock (30s expiry set on acquire)               |
 | DELETE   | `/drive/lock`                  | JWT (Bearer) | Release manual drive lock (only holder can release)                 |
@@ -22,10 +26,27 @@ This document describes the **robot-related HTTP + WebSocket API** implemented i
 The backend maintains in-memory robot state in `SharedRobotState`:
 
 - `current_state`: last reported robot telemetry (`RobotState`)
-- `robot_url`: discovered robot base URL (e.g. `http://192.168.1.50:8000`)
-- `cached_nodes`: cached result of robot `/nodes` (no TTL)
+- `robot_url`: discovered robot base URL
+- `cached_nodes`: cached result of robot `/nodes`
 - `manual_lock`: who holds manual drive lock and when it expires
 - `command_sender`: broadcast channel for `RobotCommand` messages
+- `queue`: Sequence of pending `QueuedRoute`s
+- `active_route`: Currently executing route from queue
+
+### Queue & Preemption Logic
+
+**Queue Processing:**
+The backend processes the queue sequentially. A `NAVIGATE` command is sent to the robot only after the previous cycle is confirmed finished (Robot State `driveMode` = `IDLE`).
+
+**Admin Preemption:**
+If an **Admin** sends a navigation command via WebSocket while a queued route is active:
+1. **Lock Revocation:** If an Operator holds the lock, it is forcibly revoked.
+2. **Queue Re-ordering:** The currently active route is cancelled and moved to the **front** of the queue.
+3. **Route Restart:** When resumed, the preempted route starts from its beginning.
+4. **Immediate Execution:** The Admin's command is executed immediately.
+
+### WS Command Filtering
+The `/ws/drive/manual` endpoint enforces an allow-list: `NAVIGATE`, `DRIVE_COMMAND`, `SET_MODE`, `CANCEL`. Unauthorized commands are rejected.
 
 ### Data types
 

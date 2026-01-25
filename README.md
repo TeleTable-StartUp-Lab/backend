@@ -7,6 +7,15 @@ It provides:
 - User authentication and authorization (JWT)
 - Diary entry CRUD backed by PostgreSQL
 - Robot coordination (HTTP + WebSocket) and UDP-based robot discovery
+- Three-tier RBAC (Admin, Operator, Viewer)
+
+## User Roles (RBAC)
+
+The system implements the following roles:
+
+- **Admin:** Full system access. Can overwrite active routes via WebSocket and forcibly revoke manual mode locks.
+- **Operator:** Can select routes, create diary entries, and acquire "manual mode" locks.
+- **Viewer:** Default read-only access.
 
 ## Tech stack
 

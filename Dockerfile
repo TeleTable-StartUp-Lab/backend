@@ -1,51 +1,34 @@
-# Development Stage
-FROM rust:latest as dev
+# 1. Planner Stage: Prepare the recipe
+FROM rust:1.84-slim AS planner
 WORKDIR /app
-# Install cargo-watch for hot-reloading
-RUN cargo install cargo-watch
-# Copy files (will be overridden by volume mount in compose)
+RUN cargo install cargo-chef
 COPY . .
-# Default command
-CMD ["cargo", "watch", "-x", "run"]
+RUN cargo chef prepare --recipe-path recipe.json
 
-# Builder stage
-FROM rust:latest as builder
-
+# 2. Builder Stage: Build dependencies and binary
+FROM rust:1.84-slim AS builder
 WORKDIR /app
+RUN cargo install cargo-chef
+COPY --from=planner /app/recipe.json recipe.json
 
-# Copy manifests
-COPY Cargo.toml ./
+# Build dependencies only (cached until Cargo.toml changes)
+RUN cargo chef cook --release --recipe-path recipe.json
 
-# Create a dummy main to build dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs
+# Build the actual application
+COPY . .
+RUN cargo build --release --bin backend
 
-# Build dependencies only (this will be cached)
-RUN cargo build --release && rm -rf src
-
-# Copy source code
-COPY src ./src
-COPY migrations ./migrations
-
-# Build application (touch to ensure rebuild)
-RUN touch src/main.rs && cargo build --release
-
-# Runtime stage
-FROM debian:bookworm-slim
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
+# 3. Runtime Stage: The final tiny image
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
-# Copy the binary from builder
-COPY --from=builder /app/target/release/backend .
+# Copy only what is strictly necessary
+COPY --from=builder /app/target/release/backend /usr/local/bin/backend
 COPY --from=builder /app/migrations ./migrations
 
-# Expose port
 EXPOSE 3003
-
-# Run the binary
-CMD ["./backend"]
+ENTRYPOINT ["/usr/local/bin/backend"]

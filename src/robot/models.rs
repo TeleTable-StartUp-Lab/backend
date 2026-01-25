@@ -1,5 +1,15 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct QueuedRoute {
+    pub id: Uuid,
+    pub start: String,
+    pub destination: String,
+    pub added_at: DateTime<Utc>,
+    pub added_by: String, // User name or ID
+}
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]

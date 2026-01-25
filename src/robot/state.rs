@@ -1,4 +1,5 @@
-use super::models::{RobotCommand, RobotState};
+use super::models::{QueuedRoute, RobotCommand, RobotState};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
@@ -10,6 +11,8 @@ pub struct SharedRobotState {
     pub command_sender: broadcast::Sender<RobotCommand>,
     pub robot_url: Arc<RwLock<Option<String>>>,
     pub cached_nodes: Arc<RwLock<Option<Vec<String>>>>,
+    pub queue: Arc<RwLock<VecDeque<QueuedRoute>>>,
+    pub active_route: Arc<RwLock<Option<QueuedRoute>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -28,6 +31,8 @@ impl SharedRobotState {
             command_sender: tx,
             cached_nodes: Arc::new(RwLock::new(None)),
             robot_url: Arc::new(RwLock::new(None)),
+            queue: Arc::new(RwLock::new(VecDeque::new())),
+            active_route: Arc::new(RwLock::new(None)),
         }
     }
 }
