@@ -4,15 +4,19 @@ pub mod database;
 pub mod diary;
 pub mod robot;
 
+use crate::auth::security::{admin_middleware, auth_middleware};
+use axum::{
+    middleware,
+    routing::{delete, get, post},
+    Router,
+};
 pub use config::Config;
 pub use database::{create_pool, create_redis_client};
-pub use robot::state::SharedRobotState;
-use axum::{Router, middleware, routing::{get, post, delete}};
-use sqlx::PgPool;
 use redis::aio::ConnectionManager;
+pub use robot::state::SharedRobotState;
+use sqlx::PgPool;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
-use crate::auth::security::{admin_middleware, auth_middleware};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -23,7 +27,7 @@ pub struct AppState {
 }
 
 pub fn create_router(state: Arc<AppState>) -> Router {
-     // public routes (no authentication required)
+    // public routes (no authentication required)
     let public_routes = Router::new()
         .route("/", get(root))
         .route("/register", post(auth::login::register))
@@ -78,7 +82,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/routes", get(robot::queue_routes::get_routes))
         .route("/routes", post(robot::queue_routes::add_route))
         .route("/routes/{id}", delete(robot::queue_routes::delete_route))
-        .route("/routes/optimize", post(robot::queue_routes::optimize_routes))
+        .route(
+            "/routes/optimize",
+            post(robot::queue_routes::optimize_routes),
+        )
         .route("/routes/select", post(robot::client_routes::select_route))
         .route("/drive/lock", post(robot::client_routes::acquire_lock))
         .route("/drive/lock", delete(robot::client_routes::release_lock))

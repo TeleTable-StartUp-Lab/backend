@@ -123,7 +123,7 @@ mod tests {
     fn test_password_hashing_and_verification() {
         let password = "my_secure_password";
         let hash = hash_password(password).expect("hashing failed");
-        
+
         assert_ne!(password, hash);
         assert!(verify_password(password, &hash).expect("verification failed"));
         assert!(!verify_password("wrong_password", &hash).expect("verification failed"));
@@ -155,15 +155,15 @@ mod tests {
             role: "user".to_string(),
             exp: (chrono::Utc::now().timestamp() - 3600) as usize, // 1 hour ago
         };
-        
+
         let token = encode(
             &Header::default(),
             &claims,
             &EncodingKey::from_secret(secret.as_bytes()),
-        ).unwrap();
+        )
+        .unwrap();
 
         let result = decode_jwt(&token, secret);
         assert!(result.is_err());
     }
 }
-

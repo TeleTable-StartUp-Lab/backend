@@ -40,12 +40,14 @@ The backend processes the queue sequentially. A `NAVIGATE` command is sent to th
 
 **Admin Preemption:**
 If an **Admin** sends a navigation command via WebSocket while a queued route is active:
+
 1. **Lock Revocation:** If an Operator holds the lock, it is forcibly revoked.
 2. **Queue Re-ordering:** The currently active route is cancelled and moved to the **front** of the queue.
 3. **Route Restart:** When resumed, the preempted route starts from its beginning.
 4. **Immediate Execution:** The Admin's command is executed immediately.
 
 ### WS Command Filtering
+
 The `/ws/drive/manual` endpoint enforces an allow-list: `NAVIGATE`, `DRIVE_COMMAND`, `SET_MODE`, `CANCEL`. Unauthorized commands are rejected.
 
 ### Data types

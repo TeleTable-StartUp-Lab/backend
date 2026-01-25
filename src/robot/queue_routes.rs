@@ -1,18 +1,17 @@
-use crate::AppState;
 use crate::auth::models::Claims;
 use crate::auth::roles;
 use crate::robot::models::QueuedRoute;
+use crate::AppState;
 use axum::{
-    extract::{State, Path},
+    extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
-    Extension,
+    Extension, Json,
 };
-use std::sync::Arc;
-use uuid::Uuid;
 use chrono::Utc;
 use serde::Deserialize;
+use std::sync::Arc;
+use uuid::Uuid;
 
 pub async fn get_routes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let queue = state.robot_state.queue.read().await;
@@ -31,7 +30,7 @@ pub async fn add_route(
     Json(payload): Json<AddRouteRequest>,
 ) -> impl IntoResponse {
     if !roles::is_admin(&claims.role) {
-         return StatusCode::FORBIDDEN.into_response();
+        return StatusCode::FORBIDDEN.into_response();
     }
 
     let route = QueuedRoute {
@@ -54,7 +53,7 @@ pub async fn delete_route(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     if !roles::is_admin(&claims.role) {
-         return StatusCode::FORBIDDEN.into_response();
+        return StatusCode::FORBIDDEN.into_response();
     }
 
     let mut queue = state.robot_state.queue.write().await;
@@ -71,12 +70,15 @@ pub async fn optimize_routes(
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
     if !roles::is_admin(&claims.role) {
-         return StatusCode::FORBIDDEN.into_response();
+        return StatusCode::FORBIDDEN.into_response();
     }
-    
+
     // Placeholder for optimization logic
+    // TODO
+
     Json(serde_json::json!({
         "status": "success",
         "message": "Optimization triggered"
-    })).into_response()
+    }))
+    .into_response()
 }

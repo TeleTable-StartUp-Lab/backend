@@ -1,10 +1,10 @@
-use backend::auth::models::{LoginRequest, LoginResponse, RegisterRequest};
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use tower::ServiceExt; // for oneshot
+use backend::auth::models::{LoginRequest, LoginResponse, RegisterRequest};
 use sqlx::{Pool, Postgres};
+use tower::ServiceExt; // for oneshot
 
 mod common;
 
@@ -19,14 +19,21 @@ async fn test_register_and_login_flow(pool: Pool<Postgres>) {
         password: "password123".into(),
     };
 
-    let response = app.router.clone().oneshot(
-        Request::builder()
-            .uri("/register")
-            .method("POST")
-            .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_string(&register_payload).unwrap()))
-            .unwrap()
-    ).await.unwrap();
+    let response = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/register")
+                .method("POST")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&register_payload).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
     assert_eq!(response.status(), StatusCode::CREATED);
 
@@ -36,18 +43,25 @@ async fn test_register_and_login_flow(pool: Pool<Postgres>) {
         password: "password123".into(),
     };
 
-    let response = app.router.clone().oneshot(
-        Request::builder()
-            .uri("/login")
-            .method("POST")
-            .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_string(&login_payload).unwrap()))
-            .unwrap()
-    ).await.unwrap();
+    let response = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/login")
+                .method("POST")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&login_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let login_resp: LoginResponse = serde_json::from_slice(&body).unwrap();
     assert!(!login_resp.token.is_empty());
 
@@ -57,14 +71,21 @@ async fn test_register_and_login_flow(pool: Pool<Postgres>) {
         password: "wrongpassword".into(),
     };
 
-    let response = app.router.clone().oneshot(
-        Request::builder()
-            .uri("/login")
-            .method("POST")
-            .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_string(&login_payload_bad).unwrap()))
-            .unwrap()
-    ).await.unwrap();
+    let response = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/login")
+                .method("POST")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&login_payload_bad).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
@@ -73,13 +94,17 @@ async fn test_register_and_login_flow(pool: Pool<Postgres>) {
 async fn test_access_protected_route_without_token(pool: Pool<Postgres>) {
     let app = common::spawn_app(pool).await;
 
-    let response = app.router.oneshot(
-        Request::builder()
-            .uri("/me")
-            .method("GET")
-            .body(Body::empty())
-            .unwrap()
-    ).await.unwrap();
+    let response = app
+        .router
+        .oneshot(
+            Request::builder()
+                .uri("/me")
+                .method("GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }

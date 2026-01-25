@@ -24,7 +24,8 @@ async fn test_get_nodes_proxies_to_robot(pool: Pool<Postgres>) {
     // The test app uses "test_secret".
 
     let token =
-        backend::auth::security::create_jwt("user_id", "Test User", "user", "test_secret", 1).unwrap();
+        backend::auth::security::create_jwt("user_id", "Test User", "user", "test_secret", 1)
+            .unwrap();
     let auth_header = format!("Bearer {}", token);
 
     // Mock Robot Server

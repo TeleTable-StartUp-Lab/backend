@@ -35,7 +35,7 @@ pub async fn update_robot_state(
 
     // Queue Logic
     let mut active_route_guard = state.robot_state.active_route.write().await;
-    
+
     // Check if we just finished a route
     if active_route_guard.is_some() && payload.drive_mode == "IDLE" {
         // Assumption: IDLE means finished.
@@ -46,7 +46,8 @@ pub async fn update_robot_state(
     }
 
     // Process next item if idle
-    if active_route_guard.is_none() && payload.drive_mode == "IDLE" { // Ensure robot is actually ready
+    if active_route_guard.is_none() && payload.drive_mode == "IDLE" {
+        // Ensure robot is actually ready
         // Check if manual lock is held. If so, do not auto-drive.
         let lock = state.robot_state.manual_lock.read().await;
         if lock.is_none() {

@@ -1,6 +1,6 @@
-use crate::auth::security::decode_jwt;
 use crate::auth::models::Claims;
 use crate::auth::roles;
+use crate::auth::security::decode_jwt;
 use crate::robot::models::{
     LastRoute, NodesResponse, RobotCommand, RouteSelectionRequest, StatusResponse,
 };
@@ -133,9 +133,12 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                     };
 
                     if should_revoke {
-                         let name = lock.as_ref().map(|l| l.holder_name.clone()).unwrap_or_default();
-                         *lock = None; // Forcibly revoke
-                         tracing::info!("Admin revoked lock from operator {}", name);
+                        let name = lock
+                            .as_ref()
+                            .map(|l| l.holder_name.clone())
+                            .unwrap_or_default();
+                        *lock = None; // Forcibly revoke
+                        tracing::info!("Admin revoked lock from operator {}", name);
                     }
                     drop(lock);
 
@@ -145,20 +148,19 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                     if let Some(active) = active_route_guard.take() {
                         // There was an active route. Cancel it on robot.
                         let _ = state.robot_state.command_sender.send(RobotCommand::Cancel);
-                        
+
                         // Move to front of queue
                         // "Resumed route starts from beginning" -> So we just put it back in queue with same Start/End
                         let mut queue = state.robot_state.queue.write().await;
                         queue.push_front(active);
                     }
                 }
-                
+
                 // Execute Admin Command
                 let _ = state.robot_state.command_sender.send(cmd);
-
             } else if roles::is_operator(role) {
                 // Operator Logic
-                // Must hold lock to drive manually or send commands? 
+                // Must hold lock to drive manually or send commands?
                 // "acquire the manual mode lock"
                 let lock = state.robot_state.manual_lock.read().await;
                 let is_holder = if let Some(l) = &*lock {
@@ -168,8 +170,8 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                 };
 
                 if is_holder {
-                     // Verify allow-list if needed (we only have expected commands in enum)
-                     let _ = state.robot_state.command_sender.send(cmd);
+                    // Verify allow-list if needed (we only have expected commands in enum)
+                    let _ = state.robot_state.command_sender.send(cmd);
                 }
             }
         }
@@ -261,7 +263,8 @@ pub async fn acquire_lock(
         return Json(serde_json::json!({
             "status": "error",
             "message": "Cannot acquire lock while automated route is active"
-        })).into_response();
+        }))
+        .into_response();
     }
 
     let mut lock = state.robot_state.manual_lock.write().await;
@@ -271,7 +274,8 @@ pub async fn acquire_lock(
             return Json(serde_json::json!({
                 "status": "error",
                 "message": format!("Lock held by {}", l.holder_name)
-            })).into_response();
+            }))
+            .into_response();
         }
     }
 
@@ -285,12 +289,14 @@ pub async fn acquire_lock(
         Json(serde_json::json!({
             "status": "success",
             "message": "Lock acquired"
-        })).into_response()
+        }))
+        .into_response()
     } else {
         Json(serde_json::json!({
             "status": "error",
             "message": "Invalid User ID"
-        })).into_response()
+        }))
+        .into_response()
     }
 }
 

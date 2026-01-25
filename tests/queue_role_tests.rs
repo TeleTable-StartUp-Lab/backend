@@ -116,14 +116,9 @@ async fn test_admin_can_manage_queue(pool: Pool<Postgres>) {
 async fn test_operator_cannot_manage_queue(pool: Pool<Postgres>) {
     let app = common::spawn_app(pool).await;
 
-    let operator_token = backend::auth::security::create_jwt(
-        "op_id",
-        "Operator User",
-        "Operator",
-        "test_secret",
-        1,
-    )
-    .unwrap();
+    let operator_token =
+        backend::auth::security::create_jwt("op_id", "Operator User", "Operator", "test_secret", 1)
+            .unwrap();
     let auth_header = format!("Bearer {}", operator_token);
 
     // Try to Add Route

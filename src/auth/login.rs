@@ -7,12 +7,12 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::auth::{
-    security::{create_jwt, hash_password, verify_password},
     extractor::AuthenticatedUser,
     models::{
         DeleteUserRequest, LoginRequest, LoginResponse, RegisterRequest, UpdateUserRequest, User,
         UserQuery, UserResponse,
     },
+    security::{create_jwt, hash_password, verify_password},
 };
 use crate::AppState;
 

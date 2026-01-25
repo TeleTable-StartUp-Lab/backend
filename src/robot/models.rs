@@ -37,8 +37,6 @@ pub enum RobotCommand {
     Navigate { start: String, destination: String },
     #[serde(rename = "CANCEL")]
     Cancel,
-    #[serde(rename = "SET_MODE")]
-    SetMode { mode: String },
     #[serde(rename = "DRIVE_COMMAND")]
     DriveCommand {
         linear_velocity: f64,
