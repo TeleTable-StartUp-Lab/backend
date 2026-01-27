@@ -1,5 +1,5 @@
 use backend::{
-    create_pool, create_redis_client, create_router, robot, AppState, Config, SharedRobotState,
+    create_pool, create_redis_client, create_router, AppState, Config, SharedRobotState,
 };
 use std::sync::Arc;
 use tracing::info;
