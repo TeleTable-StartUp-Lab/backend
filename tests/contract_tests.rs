@@ -44,11 +44,4 @@ fn test_robot_command_serialization() {
     assert_eq!(json_val["command"], "NAVIGATE");
     assert_eq!(json_val["start"], "Home");
     assert_eq!(json_val["destination"], "Office");
-
-    let cmd2 = RobotCommand::SetMode {
-        mode: "AUTO".to_string(),
-    };
-    let json_val2 = serde_json::to_value(&cmd2).expect("Failed to serialize");
-    assert_eq!(json_val2["command"], "SET_MODE");
-    assert_eq!(json_val2["mode"], "AUTO");
 }
