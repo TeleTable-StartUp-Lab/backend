@@ -57,4 +57,3 @@ pub async fn process_queue(state: &Arc<AppState>) {
         }
     }
 }
-

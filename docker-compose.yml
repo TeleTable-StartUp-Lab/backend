@@ -44,22 +44,19 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: teletable_backend
+    network_mode: "host"
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-teletable}:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/${POSTGRES_DB:-teletable_db}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-dev_redis_password}@redis:6379
+      DATABASE_URL: postgresql://${POSTGRES_USER:-teletable}:${POSTGRES_PASSWORD:-dev_password}@127.0.0.1:5432/${POSTGRES_DB:-teletable_db}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-dev_redis_password}@127.0.0.1:6379
       JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_in_production}
       JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
       SERVER_ADDRESS: 0.0.0.0:3003
       RUST_LOG: ${RUST_LOG:-info}
-    ports:
-      - "${BACKEND_PORT:-3003}:3003"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    networks:
-      - teletable_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3003/"]

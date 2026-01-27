@@ -1,4 +1,4 @@
-use crate::robot::models::{RobotCommand, RobotEvent, RobotState};
+use crate::robot::models::{RobotEvent, RobotState};
 use crate::AppState;
 use axum::{
     extract::{ConnectInfo, State},
