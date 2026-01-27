@@ -10,6 +10,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::auth::models::Claims;
+use crate::auth::roles;
 use crate::AppState;
 
 pub fn hash_password(password: &str) -> Result<String, bcrypt::BcryptError> {
@@ -105,7 +106,7 @@ pub async fn admin_middleware(req: Request, next: Next) -> Result<Response, impl
         )
     })?;
 
-    if claims.role != "admin" {
+    if !roles::is_admin(&claims.role) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(json!({"error": "Admin access required"})),
@@ -134,7 +135,7 @@ mod tests {
         let secret = "super_secret_key";
         let user_id = "123-456";
         let name = "Test User";
-        let role = "user";
+        let role = "Viewer";
         let expiry = 1;
 
         let token = create_jwt(user_id, name, role, secret, expiry).expect("creation failed");
@@ -152,7 +153,7 @@ mod tests {
         let claims = Claims {
             sub: "123".to_string(),
             name: "test".to_string(),
-            role: "user".to_string(),
+            role: "Viewer".to_string(),
             exp: (chrono::Utc::now().timestamp() - 3600) as usize, // 1 hour ago
         };
 

@@ -10,5 +10,5 @@ INSERT INTO users (
     'Admin User',
     'admin@teletable.com',
     '$2a$12$V86w3et3599PcMD42jh0SeryztjyS9UglXvGz.rp/dHbHSZcXSQsu', 
-    'admin'
+    'Admin'
 ) ON CONFLICT (email) DO NOTHING;
