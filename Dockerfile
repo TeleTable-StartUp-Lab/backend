@@ -1,12 +1,14 @@
 # 1. Planner Stage: Prepare the recipe
-FROM rust:1.84-slim AS planner
+# Pin the Rust base image to Debian bookworm so the produced binary
+# is compatible with the runtime image's glibc (bookworm).
+FROM rust:slim-bookworm AS planner
 WORKDIR /app
 RUN cargo install cargo-chef
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
 # 2. Builder Stage: Build dependencies and binary
-FROM rust:1.84-slim AS builder
+FROM rust:slim-bookworm AS builder
 WORKDIR /app
 RUN cargo install cargo-chef
 COPY --from=planner /app/recipe.json recipe.json
