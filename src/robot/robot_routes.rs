@@ -109,10 +109,25 @@ pub struct RobotRegistration {
 
 pub async fn register_robot(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(payload): Json<RobotRegistration>,
 ) -> impl IntoResponse {
-    let ip = addr.ip();
+    let mut ip = addr.ip();
+
+    // Prioritize X-Real-IP, then X-Forwarded-For, then socket address
+    if let Some(real_ip_str) = headers.get("X-Real-IP").and_then(|v| v.to_str().ok()) {
+        if let Ok(parsed_ip) = real_ip_str.parse() {
+            ip = parsed_ip;
+        }
+    } else if let Some(fwd_str) = headers.get("X-Forwarded-For").and_then(|v| v.to_str().ok()) {
+        if let Some(first_ip) = fwd_str.split(',').next() {
+            if let Ok(parsed_ip) = first_ip.trim().parse() {
+                ip = parsed_ip;
+            }
+        }
+    }
+
     let port = payload.port;
     let url = format!("http://{}:{}", ip, port);
 
