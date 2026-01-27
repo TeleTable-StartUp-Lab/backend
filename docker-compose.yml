@@ -53,6 +53,7 @@ services:
       RUST_LOG: ${RUST_LOG:-info}
     ports:
       - "${BACKEND_PORT:-3003}:3003"
+      - "${BACKEND_UDP_PORT:-3001}:3001/udp"
     depends_on:
       postgres:
         condition: service_healthy
