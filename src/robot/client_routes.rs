@@ -2,7 +2,7 @@ use crate::auth::models::Claims;
 use crate::auth::roles;
 use crate::auth::security::decode_jwt;
 use crate::robot::models::{
-    LastRoute, NodesResponse, RobotCommand, RouteSelectionRequest, StatusResponse,
+    LastRoute, NodesResponse, QueuedRoute, RobotCommand, RouteSelectionRequest, StatusResponse,
 };
 use crate::AppState;
 use axum::{
@@ -19,6 +19,7 @@ use futures::stream::StreamExt;
 use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
+use chrono::Utc;
 
 pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let robot_state = state.robot_state.current_state.read().await;
@@ -250,16 +251,27 @@ pub async fn select_route(
         }
     }
 
-    let cmd = RobotCommand::Navigate {
+    // Add to Queue instead of direct send
+    // This allows the queue view to see it, and process_queue to handle dispatch
+    let route = QueuedRoute {
+        id: Uuid::new_v4(),
         start: payload.start,
         destination: payload.destination,
+        added_at: Utc::now(),
+        added_by: claims.name,
     };
 
-    let _ = state.robot_state.command_sender.send(cmd);
+    {
+        let mut queue = state.robot_state.queue.write().await;
+        queue.push_back(route);
+    }
+
+    // Attempt dispatch
+    crate::robot::process_queue(&state).await;
 
     Json(serde_json::json!({
         "status": "success",
-        "message": "Route selected"
+        "message": "Route queued"
     }))
     .into_response()
 }

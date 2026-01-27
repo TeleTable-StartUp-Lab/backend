@@ -43,6 +43,10 @@ pub async fn add_route(
 
     let mut queue = state.robot_state.queue.write().await;
     queue.push_back(route.clone());
+    drop(queue);
+
+    // Trigger queue processing
+    crate::robot::process_queue(&state).await;
 
     (StatusCode::CREATED, Json(route)).into_response()
 }
