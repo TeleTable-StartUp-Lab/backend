@@ -159,6 +159,11 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                 // Execute Admin Command
                 let _ = state.robot_state.command_sender.send(cmd);
             } else if roles::is_operator(role) {
+                // Operators cannot send navigation/cancel commands via WS
+                if matches!(cmd, RobotCommand::Navigate { .. } | RobotCommand::Cancel) {
+                    continue;
+                }
+
                 // Operator Logic
                 // Must hold lock to drive manually or send commands?
                 // "acquire the manual mode lock"
@@ -223,8 +228,13 @@ pub async fn get_nodes(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 
 pub async fn select_route(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<RouteSelectionRequest>,
 ) -> impl IntoResponse {
+    if !roles::can_operate(&claims.role) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
     // Should route selection be locked? Maybe not, but concurrent nav commands are bad.
     // For now allow it broadly or require lock? Let's assume shared control allowed for nav unless locked?
     // User requested "correctly". If someone has manual lock, nav should be blocked?
@@ -258,6 +268,10 @@ pub async fn acquire_lock(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
+    if !roles::can_operate(&claims.role) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
     // Check if queue is active
     if state.robot_state.active_route.read().await.is_some() {
         return Json(serde_json::json!({
@@ -304,6 +318,10 @@ pub async fn release_lock(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
+    if !roles::can_operate(&claims.role) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
     let mut lock = state.robot_state.manual_lock.write().await;
 
     // Only holder can release
@@ -313,7 +331,8 @@ pub async fn release_lock(
             return Json(serde_json::json!({
                 "status": "success",
                 "message": "Lock released"
-            }));
+            }))
+            .into_response();
         }
     }
 
@@ -321,6 +340,7 @@ pub async fn release_lock(
         "status": "error",
         "message": "You do not hold the lock"
     }))
+    .into_response()
 }
 
 pub async fn check_robot_connection(State(state): State<Arc<AppState>>) -> impl IntoResponse {

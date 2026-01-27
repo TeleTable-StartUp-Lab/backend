@@ -12,6 +12,7 @@ use crate::auth::{
         DeleteUserRequest, LoginRequest, LoginResponse, RegisterRequest, UpdateUserRequest, User,
         UserQuery, UserResponse,
     },
+    roles,
     security::{create_jwt, hash_password, verify_password},
 };
 use crate::AppState;
@@ -52,7 +53,7 @@ pub async fn register(
     .bind(&payload.name)
     .bind(&payload.email)
     .bind(&password_hash)
-    .bind("user")
+    .bind(roles::VIEWER)
     .fetch_one(&state.db)
     .await
     .map_err(|e| {
