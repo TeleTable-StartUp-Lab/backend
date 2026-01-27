@@ -8,9 +8,10 @@ This document describes the **robot-related HTTP + WebSocket API** implemented i
 | -------- | ------------------------------ | ------------ | ------------------------------------------------------------------- |
 | GET      | `/status`                      | Public       | Get current robot status (derived from cached telemetry + lock)     |
 | GET (WS) | `/ws/robot/control`            | Public       | Stream backend robot commands to robot client(s)                    |
+| POST     | `/table/register`              | None         | Register robot URL with backend (robot → backend)                   |
 | POST     | `/table/state`                 | `X-Api-Key`  | Robot telemetry update (robot → backend)                            |
 | POST     | `/table/event`                 | `X-Api-Key`  | Robot event reporting (robot → backend)                             |
-| GET      | `/nodes`                       | JWT (Bearer) | Get robot nodes (cached; fetched from discovered robot HTTP server) |
+| GET      | `/nodes`                       | JWT (Bearer) | Get robot nodes (cached; fetched from registered robot HTTP server) |
 | GET      | `/routes`                      | JWT (Any)    | Get current route queue                                             |
 | POST     | `/routes`                      | JWT (Admin)  | Add route to queue                                                  |
 | DELETE   | `/routes/:id`                  | JWT (Admin)  | Remove route from queue                                             |
@@ -18,7 +19,7 @@ This document describes the **robot-related HTTP + WebSocket API** implemented i
 | POST     | `/routes/select`               | JWT (Bearer) | Send `NAVIGATE` command (blocked while manual lock active)          |
 | POST     | `/drive/lock`                  | JWT (Bearer) | Acquire manual drive lock (30s expiry set on acquire)               |
 | DELETE   | `/drive/lock`                  | JWT (Bearer) | Release manual drive lock (only holder can release)                 |
-| GET      | `/robot/check`                 | JWT (Bearer) | Probe discovered robot via `GET {robot_url}/health`                 |
+| GET      | `/robot/check`                 | JWT (Bearer) | Probe registered robot via `GET {robot_url}/health`                 |
 | GET (WS) | `/ws/drive/manual?token=<jwt>` | JWT in query | Send manual control commands; backend enforces lock-holder identity |
 
 ## Concepts and state
@@ -26,7 +27,7 @@ This document describes the **robot-related HTTP + WebSocket API** implemented i
 The backend maintains in-memory robot state in `SharedRobotState`:
 
 - `current_state`: last reported robot telemetry (`RobotState`)
-- `robot_url`: discovered robot base URL
+- `robot_url`: registered robot base URL (via `/table/register`)
 - `cached_nodes`: cached result of robot `/nodes`
 - `manual_lock`: who holds manual drive lock and when it expires
 - `command_sender`: broadcast channel for `RobotCommand` messages

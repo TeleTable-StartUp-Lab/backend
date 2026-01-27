@@ -40,9 +40,6 @@ async fn main() {
         robot_state: robot_state.clone(),
     });
 
-    // Start UDP discovery service
-    tokio::spawn(robot::discovery::run_discovery_service(robot_state));
-
     let app = create_router(state);
 
     let server_address = config.server_address.clone();
@@ -51,5 +48,10 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&server_address)
         .await
         .unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }

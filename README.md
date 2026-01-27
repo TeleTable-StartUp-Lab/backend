@@ -6,7 +6,7 @@ It provides:
 
 - User authentication and authorization (JWT)
 - Diary entry CRUD backed by PostgreSQL
-- Robot coordination (HTTP + WebSocket) and UDP-based robot discovery
+- Robot coordination (HTTP + WebSocket)
 - Three-tier RBAC (Admin, Operator, Viewer)
 
 ## User Roles (RBAC)
@@ -49,8 +49,6 @@ The backend reads configuration from environment variables:
 - `JWT_EXPIRY_HOURS` (optional, default `24`)
 - `SERVER_ADDRESS` (optional, default `0.0.0.0:3003`)
 - `ROBOT_API_KEY` (optional, default `secret-robot-key`)
-
-Robot discovery listens on UDP port `3001`.
 
 ## API documentation
 

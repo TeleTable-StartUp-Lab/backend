@@ -1,12 +1,13 @@
 use crate::robot::models::{RobotCommand, RobotEvent, RobotState};
 use crate::AppState;
 use axum::{
-    extract::State,
+    extract::{ConnectInfo, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
-
+use serde::Deserialize;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 pub async fn update_robot_state(
@@ -99,4 +100,27 @@ pub async fn handle_robot_event(
         "status": "success"
     }))
     .into_response()
+}
+
+#[derive(Deserialize)]
+pub struct RobotRegistration {
+    port: u16,
+}
+
+pub async fn register_robot(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(payload): Json<RobotRegistration>,
+) -> impl IntoResponse {
+    let ip = addr.ip();
+    let port = payload.port;
+    let url = format!("http://{}:{}", ip, port);
+
+    let mut url_lock = state.robot_state.robot_url.write().await;
+    if url_lock.as_deref() != Some(&url) {
+        tracing::info!("Registered robot at {}", url);
+        *url_lock = Some(url);
+    }
+
+    StatusCode::OK
 }

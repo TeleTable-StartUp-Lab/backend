@@ -33,5 +33,4 @@ COPY --from=builder /app/target/release/backend /usr/local/bin/backend
 COPY --from=builder /app/migrations ./migrations
 
 EXPOSE 3003
-EXPOSE 3001/udp
 ENTRYPOINT ["/usr/local/bin/backend"]

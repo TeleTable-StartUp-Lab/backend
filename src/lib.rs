@@ -68,6 +68,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(robot::robot_routes::handle_robot_event),
         )
         .route(
+            "/table/register",
+            post(robot::robot_routes::register_robot),
+        )
+        .route(
             "/ws/robot/control",
             get(robot::client_routes::robot_control_ws),
         )
