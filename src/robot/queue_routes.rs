@@ -14,8 +14,17 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 pub async fn get_routes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let active = state.robot_state.active_route.read().await.clone();
     let queue = state.robot_state.queue.read().await;
-    Json(queue.clone())
+    let mut routes = Vec::with_capacity(queue.len() + if active.is_some() { 1 } else { 0 });
+
+    if let Some(route) = active {
+        routes.push(route);
+    }
+
+    routes.extend(queue.iter().cloned());
+
+    Json(routes)
 }
 
 #[derive(Deserialize)]

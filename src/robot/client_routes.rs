@@ -155,6 +155,17 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                         let mut queue = state.robot_state.queue.write().await;
                         queue.push_front(active);
                     }
+
+                    // Track this WS navigation as the active route (so it appears in queue view)
+                    if let RobotCommand::Navigate { start, destination } = &cmd {
+                        *active_route_guard = Some(QueuedRoute {
+                            id: Uuid::new_v4(),
+                            start: start.clone(),
+                            destination: destination.clone(),
+                            added_at: Utc::now(),
+                            added_by: claims.name.clone(),
+                        });
+                    }
                 }
 
                 // Execute Admin Command
@@ -284,8 +295,10 @@ pub async fn acquire_lock(
         return StatusCode::FORBIDDEN.into_response();
     }
 
+    let is_admin = roles::is_admin(&claims.role);
+
     // Check if queue is active
-    if state.robot_state.active_route.read().await.is_some() {
+    if !is_admin && state.robot_state.active_route.read().await.is_some() {
         return Json(serde_json::json!({
             "status": "error",
             "message": "Cannot acquire lock while automated route is active"
@@ -297,11 +310,19 @@ pub async fn acquire_lock(
 
     if let Some(l) = &*lock {
         if l.expires_at > chrono::Utc::now() && l.holder_id.to_string() != claims.sub {
-            return Json(serde_json::json!({
-                "status": "error",
-                "message": format!("Lock held by {}", l.holder_name)
-            }))
-            .into_response();
+            if !is_admin {
+                return Json(serde_json::json!({
+                    "status": "error",
+                    "message": format!("Lock held by {}", l.holder_name)
+                }))
+                .into_response();
+            }
+
+            tracing::info!(
+                "Admin {} revoked lock from {}",
+                claims.name,
+                l.holder_name
+            );
         }
     }
 
@@ -312,9 +333,15 @@ pub async fn acquire_lock(
             expires_at: chrono::Utc::now() + chrono::Duration::seconds(30),
         });
 
+        let message = if is_admin && state.robot_state.active_route.read().await.is_some() {
+            "Admin lock acquired while automated route is active"
+        } else {
+            "Lock acquired"
+        };
+
         Json(serde_json::json!({
             "status": "success",
-            "message": "Lock acquired"
+            "message": message
         }))
         .into_response()
     } else {
