@@ -79,15 +79,25 @@ pub async fn delete_route(
 }
 
 pub async fn optimize_routes(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
     if !roles::is_admin(&claims.role) {
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    // Placeholder for optimization logic
-    // TODO
+    let mut guard = state.robot_state.queue.write().await;
+    let routes: Vec<_> = guard.iter().cloned().collect();
+    let optimized = crate::robot::optimization_helper::solve_atsp_path(routes, |from, to| {
+        if from == to {
+            0.0
+        } else {
+            1.0 // replace with real distance / latency / lookup
+        }
+    });
+
+    guard.truncate(0);
+    guard.extend(optimized);
 
     Json(serde_json::json!({
         "status": "success",

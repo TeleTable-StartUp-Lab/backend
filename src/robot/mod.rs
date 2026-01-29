@@ -1,5 +1,6 @@
 pub mod client_routes;
 pub mod models;
+mod optimization_helper;
 pub mod queue_routes;
 pub mod robot_routes;
 pub mod state;
