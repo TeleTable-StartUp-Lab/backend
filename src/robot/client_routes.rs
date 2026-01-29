@@ -21,6 +21,16 @@ use std::sync::Arc;
 use uuid::Uuid;
 use chrono::Utc;
 
+fn robot_http_client() -> reqwest::Client {
+    match reqwest::Client::builder().no_proxy().build() {
+        Ok(client) => client,
+        Err(e) => {
+            tracing::error!("Failed to build robot HTTP client: {}", e);
+            reqwest::Client::new()
+        }
+    }
+}
+
 pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let robot_state = state.robot_state.current_state.read().await;
     let lock_state = state.robot_state.manual_lock.read().await;
@@ -210,7 +220,7 @@ pub async fn get_nodes(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     // Attempt to fetch from robot
     let robot_url = state.robot_state.robot_url.read().await;
     if let Some(url) = &*robot_url {
-        let client = reqwest::Client::new();
+        let client = robot_http_client();
         match client.get(format!("{url}/nodes")).send().await {
             Ok(resp) => {
                 if resp.status().is_success() {
@@ -386,7 +396,7 @@ pub async fn check_robot_connection(State(state): State<Arc<AppState>>) -> impl 
     let robot_url = state.robot_state.robot_url.read().await;
 
     if let Some(url) = &*robot_url {
-        let client = reqwest::Client::new();
+        let client = robot_http_client();
         match client.get(format!("{url}/health")).send().await {
             Ok(resp) => {
                 let status = resp.status();
