@@ -116,6 +116,8 @@ pub async fn manual_control_ws(
 
 async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claims: Claims) {
     let role = claims.role.as_str();
+    let is_admin = roles::is_admin(role);
+    let is_operator = roles::is_operator(role);
 
     while let Some(Ok(msg)) = socket.next().await {
         if let Message::Text(text) = msg {
@@ -130,12 +132,23 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                 continue;
             }
 
+            // 1a. Admin-only commands
+            if !is_admin
+                && matches!(
+                    cmd,
+                    RobotCommand::Led { .. }
+                        | RobotCommand::AudioBeep { .. }
+                        | RobotCommand::AudioVolume { .. }
+                )
+            {
+                continue;
+            }
+
             // 2. Admin Preemption & Logic
-            if roles::is_admin(role) {
+            if is_admin {
                 // Admin can do anything
                 // Check if this is a navigation command that needs preemption
                 if let RobotCommand::Navigate { .. } = &cmd {
-                    // Revoke lock if held by operator
                     let mut lock = state.robot_state.manual_lock.write().await;
                     let should_revoke = if let Some(l) = &*lock {
                         l.holder_id.to_string() != claims.sub
@@ -180,7 +193,7 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
 
                 // Execute Admin Command
                 let _ = state.robot_state.command_sender.send(cmd);
-            } else if roles::is_operator(role) {
+            } else if is_operator {
                 // Operators cannot send navigation/cancel commands via WS
                 if matches!(cmd, RobotCommand::Navigate { .. } | RobotCommand::Cancel) {
                     continue;

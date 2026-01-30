@@ -42,6 +42,18 @@ pub enum RobotCommand {
         linear_velocity: f64,
         angular_velocity: f64,
     },
+    #[serde(rename = "LED")]
+    Led {
+        enabled: bool,
+        r: u8,
+        g: u8,
+        b: u8,
+        brightness: u8,
+    },
+    #[serde(rename = "AUDIO_BEEP")]
+    AudioBeep { hz: u32, ms: u32 },
+    #[serde(rename = "AUDIO_VOLUME")]
+    AudioVolume { value: f32 },
 }
 
 #[derive(Debug, Serialize)]
