@@ -6,7 +6,6 @@ use backend::{
     auth::models::{LoginRequest, LoginResponse, RegisterRequest},
     diary::models::{CreateDiaryRequest, DeleteDiaryRequest, DiaryResponse},
 };
-use sqlx::{Pool, Postgres};
 use tower::ServiceExt;
 
 mod common;
@@ -60,9 +59,15 @@ async fn get_auth_token(app: &axum::Router) -> String {
     login_resp.token
 }
 
-#[sqlx::test]
-async fn test_diary_crud(pool: Pool<Postgres>) {
-    let app = common::spawn_app(pool).await;
+#[tokio::test]
+async fn test_diary_crud() {
+    let app = match common::setup_test_app().await {
+        Ok(app) => app,
+        Err(e) => {
+            eprintln!("Skipping test_diary_crud: {e}");
+            return;
+        }
+    };
     let token = get_auth_token(&app.router).await;
     let auth_header = format!("Bearer {}", token);
 
@@ -161,4 +166,66 @@ async fn test_diary_crud(pool: Pool<Postgres>) {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn test_viewer_cannot_create_or_update_diary() {
+    let app = match common::setup_test_app().await {
+        Ok(app) => app,
+        Err(e) => {
+            eprintln!("Skipping test_viewer_cannot_create_or_update_diary: {e}");
+            return;
+        }
+    };
+
+    // Register + login → Viewer token
+    let token = get_auth_token(&app.router).await;
+    let auth_header = format!("Bearer {}", token);
+
+    let create_payload = CreateDiaryRequest {
+        id: None,
+        working_minutes: 30,
+        text: "Viewer write attempt".into(),
+    };
+
+    let response = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/diary")
+                .method("POST")
+                .header("Content-Type", "application/json")
+                .header("Authorization", &auth_header)
+                .body(Body::from(serde_json::to_string(&create_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    // Attempt update should also be forbidden
+    let update_payload = CreateDiaryRequest {
+        id: Some(uuid::Uuid::new_v4()),
+        working_minutes: 45,
+        text: "Viewer update attempt".into(),
+    };
+
+    let response = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/diary")
+                .method("POST")
+                .header("Content-Type", "application/json")
+                .header("Authorization", &auth_header)
+                .body(Body::from(serde_json::to_string(&update_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }

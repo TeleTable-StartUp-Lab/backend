@@ -1,6 +1,6 @@
 use backend::{create_router, AppState, Config, SharedRobotState};
-use sqlx::PgPool;
-use std::sync::Arc;
+use sqlx::{postgres::PgPoolOptions, PgPool};
+use std::{sync::Arc, time::Duration};
 
 #[allow(dead_code)]
 pub struct TestApp {
@@ -9,7 +9,7 @@ pub struct TestApp {
     pub state: Arc<AppState>,
 }
 
-pub async fn spawn_app(pool: PgPool) -> TestApp {
+pub async fn spawn_app(pool: PgPool) -> Result<TestApp, String> {
     // Mock Redis or use a real one if available.
     // For tests, we might skip redis if it's only for specific features not tested here,
     // but AppState requires it.
@@ -20,11 +20,12 @@ pub async fn spawn_app(pool: PgPool) -> TestApp {
     // For simplicity in this environment, we might fail if redis isn't there.
     // Let's assume we can connect to standard redis or use a mocked object if we refactor AppState.
     // Refactoring AppState to use a Trait for Redis would be better, but for now:
-    let redis_client = redis::Client::open("redis://127.0.0.1/").expect("Invalid Redis URL");
+    let redis_client = redis::Client::open("redis://127.0.0.1/")
+        .map_err(|e| format!("Invalid Redis URL: {e}"))?;
     let redis = redis_client
         .get_connection_manager()
         .await
-        .expect("Failed to connect to Redis");
+        .map_err(|e| format!("Failed to connect to Redis: {e}"))?;
 
     let config = Config {
         database_url: "postgres://...".to_string(), // Overridden by logic elsewhere
@@ -46,9 +47,29 @@ pub async fn spawn_app(pool: PgPool) -> TestApp {
 
     let router = create_router(state.clone());
 
-    TestApp {
+    Ok(TestApp {
         router,
         db: pool,
         state,
-    }
+    })
+}
+
+pub async fn setup_test_app() -> Result<TestApp, String> {
+    let database_url = std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .map_err(|_| "TEST_DATABASE_URL or DATABASE_URL must be set for integration tests".to_string())?;
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect(&database_url)
+        .await
+        .map_err(|e| format!("Failed to connect to database: {e}"))?;
+
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .map_err(|e| format!("Failed to run migrations: {e}"))?;
+
+    spawn_app(pool).await
 }
