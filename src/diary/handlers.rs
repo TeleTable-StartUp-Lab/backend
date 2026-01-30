@@ -20,19 +20,35 @@ pub async fn create_or_update_diary(
     AuthenticatedUser(claims): AuthenticatedUser,
     Json(payload): Json<CreateDiaryRequest>,
 ) -> Result<(StatusCode, Json<DiaryResponse>), (StatusCode, Json<serde_json::Value>)> {
-    if !roles::can_operate(&claims.role) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "Insufficient permissions" })),
-        ));
-    }
-
     let user_id = Uuid::parse_str(&claims.sub).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "Invalid user ID"})),
         )
     })?;
+
+    // Fetch current role from DB to honor recent role changes (tokens may be stale)
+    let db_role: String = sqlx::query_scalar("SELECT role FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+            )
+        })?
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "User not found"})),
+        ))?;
+
+    if !roles::can_operate(&db_role) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Insufficient permissions" })),
+        ));
+    }
 
     let entry = if let Some(id) = payload.id {
         sqlx::query_as::<_, DiaryEntry>(
@@ -185,19 +201,35 @@ pub async fn delete_diary(
     AuthenticatedUser(claims): AuthenticatedUser,
     Json(payload): Json<DeleteDiaryRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
-    if !roles::can_operate(&claims.role) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "Insufficient permissions"})),
-        ));
-    }
-
     let user_id = Uuid::parse_str(&claims.sub).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "Invalid user ID"})),
         )
     })?;
+
+    // Fetch current role from DB to honor recent role changes (tokens may be stale)
+    let db_role: String = sqlx::query_scalar("SELECT role FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+            )
+        })?
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "User not found"})),
+        ))?;
+
+    if !roles::can_operate(&db_role) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Insufficient permissions"})),
+        ));
+    }
 
     let result = sqlx::query("DELETE FROM diary_entries WHERE id = $1 AND owner = $2")
         .bind(payload.id)
