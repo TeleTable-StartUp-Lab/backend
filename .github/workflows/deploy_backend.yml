@@ -3,9 +3,6 @@ name: Deploy Backend
 on:
   push:
     branches: ["main"]
-    paths:
-      - "backend/**"
-      - ".github/workflows/deploy_backend.yml"
 
 jobs:
   deploy:
