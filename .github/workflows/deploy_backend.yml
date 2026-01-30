@@ -1,0 +1,24 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy_backend.yml"
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Deploy Backend
+        run: |
+          cd /home/lukas/srv/backend
+          git pull origin main
+
+          # Stop containers and remove images built from the docker-compose file (the backend image)
+          docker compose down --rmi local
+
+          # Rebuild and start in detached mode
+          docker compose up -d --build
