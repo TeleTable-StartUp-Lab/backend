@@ -10,7 +10,7 @@ This document describes the **auth-related HTTP API** implemented in the backend
 | POST   | `/login`    | Public               | Authenticate and receive a JWT               |
 | GET    | `/me`       | JWT (Bearer)         | Fetch the authenticated user                 |
 | GET    | `/user`     | JWT (Bearer) + Admin | List users or fetch a specific user by `id`  |
-| POST   | `/user`     | JWT (Bearer) + Admin | Update user fields (`name`, `email`, `role`) |
+| POST   | `/user`     | JWT (Bearer) + Admin | Update user fields (`name`, `email`, `role`, `password`) |
 | DELETE | `/user`     | JWT (Bearer) + Admin | Delete a user                                |
 
 ## Authentication model
@@ -217,11 +217,12 @@ Update a user’s `name`, `email`, and/or `role`.
   "id": "<uuid>",
   "name": "New Name",
   "email": "new@example.com",
-  "role": "admin"
+  "role": "admin",
+  "password": "new_password_if_resetting"
 }
 ```
 
-All of `name`, `email`, `role` are optional; `id` is required.
+All of `name`, `email`, `role`, `password` are optional; `id` is required. If `password` is provided, it is bcrypt-hashed before being stored. Empty passwords are rejected with `400`.
 
 #### Responses
 

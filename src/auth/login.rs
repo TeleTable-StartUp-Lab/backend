@@ -213,12 +213,31 @@ pub async fn update_user(
         user.role = role;
     }
 
+    if let Some(password) = payload.password {
+        if password.trim().is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Password cannot be empty"})),
+            ));
+        }
+
+        user.password_hash = hash_password(&password).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": format!("Password hashing error: {}", e),
+                })),
+            )
+        })?;
+    }
+
     let updated_user = sqlx::query_as::<_, User>(
-        "UPDATE users SET name = $1, email = $2, role = $3 WHERE id = $4 RETURNING *",
+        "UPDATE users SET name = $1, email = $2, role = $3, password_hash = $4 WHERE id = $5 RETURNING *",
     )
     .bind(&user.name)
     .bind(&user.email)
     .bind(&user.role)
+    .bind(&user.password_hash)
     .bind(payload.id)
     .fetch_one(&state.db)
     .await

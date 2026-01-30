@@ -69,6 +69,7 @@ pub struct UpdateUserRequest {
     pub name: Option<String>,
     pub email: Option<String>,
     pub role: Option<String>,
+    pub password: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
