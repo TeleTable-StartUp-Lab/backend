@@ -9,10 +9,12 @@ use backend::{
 use tower::ServiceExt;
 
 mod common;
+use common::TestApp;
 
-async fn get_auth_token(app: &axum::Router) -> String {
+async fn get_auth_token(app: &TestApp) -> String {
     // Register
     let _ = app
+        .router
         .clone()
         .oneshot(
             Request::builder()
@@ -32,8 +34,16 @@ async fn get_auth_token(app: &axum::Router) -> String {
         .await
         .unwrap();
 
+    // Promote to Operator so writes are allowed
+    sqlx::query("UPDATE users SET role = 'Operator' WHERE email = $1")
+        .bind("diary@example.com")
+        .execute(&app.db)
+        .await
+        .unwrap();
+
     // Login
     let response = app
+        .router
         .clone()
         .oneshot(
             Request::builder()
@@ -68,7 +78,7 @@ async fn test_diary_crud() {
             return;
         }
     };
-    let token = get_auth_token(&app.router).await;
+    let token = get_auth_token(&app).await;
     let auth_header = format!("Bearer {}", token);
 
     // 1. Create Diary Entry
@@ -179,7 +189,7 @@ async fn test_viewer_cannot_create_or_update_diary() {
     };
 
     // Register + login → Viewer token
-    let token = get_auth_token(&app.router).await;
+    let token = get_auth_token(&app).await;
     let auth_header = format!("Bearer {}", token);
 
     let create_payload = CreateDiaryRequest {
