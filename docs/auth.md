@@ -4,14 +4,14 @@ This document describes the **auth-related HTTP API** implemented in the backend
 
 ## Quick reference
 
-| Method | Path        | Auth                 | Purpose                                      |
-| ------ | ----------- | -------------------- | -------------------------------------------- |
-| POST   | `/register` | Public               | Create a new user account                    |
-| POST   | `/login`    | Public               | Authenticate and receive a JWT               |
-| GET    | `/me`       | JWT (Bearer)         | Fetch the authenticated user                 |
-| GET    | `/user`     | JWT (Bearer) + Admin | List users or fetch a specific user by `id`  |
+| Method | Path        | Auth                 | Purpose                                                  |
+| ------ | ----------- | -------------------- | -------------------------------------------------------- |
+| POST   | `/register` | Public               | Create a new user account                                |
+| POST   | `/login`    | Public               | Authenticate and receive a JWT                           |
+| GET    | `/me`       | JWT (Bearer)         | Fetch the authenticated user                             |
+| GET    | `/user`     | JWT (Bearer) + Admin | List users or fetch a specific user by `id`              |
 | POST   | `/user`     | JWT (Bearer) + Admin | Update user fields (`name`, `email`, `role`, `password`) |
-| DELETE | `/user`     | JWT (Bearer) + Admin | Delete a user                                |
+| DELETE | `/user`     | JWT (Bearer) + Admin | Delete a user                                            |
 
 ## Authentication model
 
@@ -19,6 +19,24 @@ This document describes the **auth-related HTTP API** implemented in the backend
 - Authenticated endpoints require the header:
   - `Authorization: Bearer <jwt>`
 - The backend verifies the token using `JWT_SECRET` (HMAC; jsonwebtoken defaults) and validates expiry (`exp`).
+
+## Roles and permissions
+
+The backend uses three roles: **Admin**, **Operator**, and **Viewer**. Expected capabilities are below (enforcement gaps are noted).
+
+| Capability                                                                         | Admin                     | Operator        | Viewer          |
+| ---------------------------------------------------------------------------------- | ------------------------- | --------------- | --------------- |
+| Manage users (`/user` list/update/delete)                                          | Yes                       | No              | No              |
+| Create/update diary entries (`POST /diary`)                                        | Yes                       | Yes             | No (403)        |
+| Delete diary entries (`DELETE /diary`)                                             | Yes                       | Yes             | No (403)        |
+| Read own diary entries (`GET /diary`)                                              | Yes                       | Yes             | Yes             |
+| Read all diaries (`GET /diary/all`)                                                | Public endpoint (no auth) | Public endpoint | Public endpoint |
+| Select robot routes (`POST /routes/select`)                                        | Yes                       | Yes             | No              |
+| Acquire/release manual drive lock (`POST/DELETE /drive/lock`)                      | Yes                       | Yes             | No              |
+| Manage route queue (`POST /routes`, `DELETE /routes/:id`, `POST /routes/optimize`) | Yes                       | No              | No              |
+| Read robot nodes/status (`GET /nodes`, `GET /status`)                              | Yes                       | Yes             | Yes             |
+
+Known issue: the diary handlers currently allow any authenticated user (including Viewers) to create, update, and delete entries. Until the handler is hardened, clients should treat this as a bug and avoid granting those actions to Viewers at the UI layer.
 
 ### JWT claims
 

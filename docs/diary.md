@@ -87,6 +87,12 @@ All endpoints below require:
 
 - `Authorization: Bearer <jwt>`
 
+Role expectations:
+
+- **Create/update (`POST /diary`)**: Admin and Operator only; Viewer receives `403`.
+- **Delete (`DELETE /diary`)**: Admin and Operator only; Viewer receives `403`.
+- **Read (`GET /diary`)**: All authenticated roles.
+
 See [docs/auth.md](auth.md) for exact middleware error responses.
 
 ### `POST /diary`

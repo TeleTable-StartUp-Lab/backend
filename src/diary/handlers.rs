@@ -7,7 +7,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    auth::extractor::AuthenticatedUser,
+    auth::{extractor::AuthenticatedUser, roles},
     diary::models::{
         CreateDiaryRequest, DeleteDiaryRequest, DiaryEntry, DiaryEntryWithUser, DiaryQuery,
         DiaryResponse, DiaryResponseWithUser,
@@ -20,6 +20,13 @@ pub async fn create_or_update_diary(
     AuthenticatedUser(claims): AuthenticatedUser,
     Json(payload): Json<CreateDiaryRequest>,
 ) -> Result<(StatusCode, Json<DiaryResponse>), (StatusCode, Json<serde_json::Value>)> {
+    if !roles::can_operate(&claims.role) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Insufficient permissions" })),
+        ));
+    }
+
     let user_id = Uuid::parse_str(&claims.sub).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
@@ -178,6 +185,13 @@ pub async fn delete_diary(
     AuthenticatedUser(claims): AuthenticatedUser,
     Json(payload): Json<DeleteDiaryRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    if !roles::can_operate(&claims.role) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Insufficient permissions"})),
+        ));
+    }
+
     let user_id = Uuid::parse_str(&claims.sub).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
