@@ -69,6 +69,57 @@ async fn get_auth_token(app: &TestApp) -> String {
     login_resp.token
 }
 
+async fn get_viewer_token(app: &TestApp) -> String {
+    // Register as viewer
+    let _ = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/register")
+                .method("POST")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&RegisterRequest {
+                        name: "Viewer User".into(),
+                        email: "viewer@example.com".into(),
+                        password: "password".into(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Login as Viewer (default role - no promotion)
+    let response = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/login")
+                .method("POST")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&LoginRequest {
+                        email: "viewer@example.com".into(),
+                        password: "password".into(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let login_resp: LoginResponse = serde_json::from_slice(&body).unwrap();
+    login_resp.token
+}
+
 #[tokio::test]
 async fn test_diary_crud() {
     let app = match common::setup_test_app().await {
@@ -189,7 +240,7 @@ async fn test_viewer_cannot_create_or_update_diary() {
     };
 
     // Register + login → Viewer token
-    let token = get_auth_token(&app).await;
+    let token = get_viewer_token(&app).await;
     let auth_header = format!("Bearer {}", token);
 
     let create_payload = CreateDiaryRequest {
