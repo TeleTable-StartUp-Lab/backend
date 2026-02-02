@@ -13,12 +13,19 @@ use crate::auth::models::Claims;
 use crate::auth::roles;
 use crate::AppState;
 
-pub fn hash_password(password: &str) -> Result<String, bcrypt::BcryptError> {
-    bcrypt::hash(password, bcrypt::DEFAULT_COST)
+pub async fn hash_password(password: &str) -> Result<String, bcrypt::BcryptError> {
+    let password = password.to_string();
+    tokio::task::spawn_blocking(move || bcrypt::hash(&password, bcrypt::DEFAULT_COST))
+        .await
+        .map_err(|e| bcrypt::BcryptError::InvalidCost(e.to_string()))?
 }
 
-pub fn verify_password(password: &str, hash: &str) -> Result<bool, bcrypt::BcryptError> {
-    bcrypt::verify(password, hash)
+pub async fn verify_password(password: &str, hash: &str) -> Result<bool, bcrypt::BcryptError> {
+    let password = password.to_string();
+    let hash = hash.to_string();
+    tokio::task::spawn_blocking(move || bcrypt::verify(&password, &hash))
+        .await
+        .map_err(|e| bcrypt::BcryptError::InvalidCost(e.to_string()))?
 }
 
 pub fn create_jwt(
@@ -86,12 +93,32 @@ pub async fn auth_middleware(
         )
     })?;
 
-    let claims = decode_jwt(token, &state.config.jwt_secret).map_err(|_| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid or expired token"})),
-        )
-    })?;
+    // Try to get cached JWT validation first
+    let token_hash = format!("{:x}", md5::compute(token));
+    let mut redis = state.redis.clone();
+    
+    let claims = if let Ok(Some(cached_claims)) = crate::cache::CacheService::get_jwt_validation(&mut redis, &token_hash).await {
+        serde_json::from_str(&cached_claims).map_err(|_| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Invalid cached token"})),
+            )
+        })?
+    } else {
+        let claims = decode_jwt(token, &state.config.jwt_secret).map_err(|_| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Invalid or expired token"})),
+            )
+        })?;
+        
+        // Cache the validated JWT
+        if let Ok(claims_json) = serde_json::to_string(&claims) {
+            let _ = crate::cache::CacheService::cache_jwt_validation(&mut redis, &token_hash, &claims_json).await;
+        }
+        
+        claims
+    };
 
     req.extensions_mut().insert(claims);
 
@@ -120,14 +147,14 @@ pub async fn admin_middleware(req: Request, next: Next) -> Result<Response, impl
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_password_hashing_and_verification() {
+    #[tokio::test]
+    async fn test_password_hashing_and_verification() {
         let password = "my_secure_password";
-        let hash = hash_password(password).expect("hashing failed");
+        let hash = hash_password(password).await.expect("hashing failed");
 
         assert_ne!(password, hash);
-        assert!(verify_password(password, &hash).expect("verification failed"));
-        assert!(!verify_password("wrong_password", &hash).expect("verification failed"));
+        assert!(verify_password(password, &hash).await.expect("verification failed"));
+        assert!(!verify_password("wrong_password", &hash).await.expect("verification failed"));
     }
 
     #[test]

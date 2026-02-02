@@ -39,7 +39,7 @@ pub async fn register(
         ));
     }
 
-    let password_hash = hash_password(&payload.password).map_err(|e| {
+    let password_hash = hash_password(&payload.password).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("Password hashing error: {}", e)})),
@@ -87,7 +87,7 @@ pub async fn login(
             )
         })?;
 
-    let valid = verify_password(&payload.password, &user.password_hash).map_err(|e| {
+    let valid = verify_password(&payload.password, &user.password_hash).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("Password verification error: {}", e)})),
@@ -115,6 +115,10 @@ pub async fn login(
         )
     })?;
 
+    // Cache user data for faster subsequent requests
+    let mut redis = state.redis.clone();
+    let _ = crate::cache::CacheService::cache_user(&mut redis, &user.id.to_string(), &user).await;
+
     Ok(Json(LoginResponse { token }))
 }
 
@@ -129,16 +133,26 @@ pub async fn get_me(
         )
     })?;
 
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
-            )
-        })?;
+    // Try cache first
+    let mut redis = state.redis.clone();
+    let user = if let Ok(Some(cached_user)) = crate::cache::CacheService::get_user::<User>(&mut redis, &user_id.to_string()).await {
+        cached_user
+    } else {
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+                )
+            })?;
+        
+        // Cache for next time
+        let _ = crate::cache::CacheService::cache_user(&mut redis, &user_id.to_string(), &user).await;
+        user
+    };
 
     Ok(Json(user.into()))
 }
@@ -221,7 +235,7 @@ pub async fn update_user(
             ));
         }
 
-        user.password_hash = hash_password(&password).map_err(|e| {
+        user.password_hash = hash_password(&password).await.map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
@@ -247,6 +261,10 @@ pub async fn update_user(
             Json(serde_json::json!({"error": format!("Failed to update user: {}", e)})),
         )
     })?;
+
+    // Invalidate user cache after update
+    let mut redis = state.redis.clone();
+    let _ = crate::cache::CacheService::invalidate_user(&mut redis, &payload.id.to_string()).await;
 
     Ok(Json(updated_user.into()))
 }
