@@ -67,11 +67,6 @@ jobs:
           JWT_SECRET: "test_secret_key_for_testing_purposes"
           ROBOT_API_KEY: "test_robot_api_key"
 
-      - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
-
-      - name: Coverage
-        run: cargo tarpaulin --out Xml
         env:
             DATABASE_URL: postgres://user:password@localhost:5432/teletable_test
             JWT_SECRET: "test_secret_key_for_testing_purposes"
