@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod cache;
 pub mod config;
 pub mod database;
 pub mod diary;
@@ -24,6 +25,7 @@ pub struct AppState {
     pub redis: ConnectionManager,
     pub config: Config,
     pub robot_state: SharedRobotState,
+    pub http_client: reqwest::Client,
 }
 
 pub fn create_router(state: Arc<AppState>) -> Router {
