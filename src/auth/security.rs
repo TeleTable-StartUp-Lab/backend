@@ -15,18 +15,29 @@ use crate::AppState;
 
 pub async fn hash_password(password: &str) -> Result<String, bcrypt::BcryptError> {
     let password = password.to_string();
+    let password_clone = password.clone();
+    // Try spawn_blocking first, fallback to direct call if it fails (e.g., in tarpaulin)
     match tokio::task::spawn_blocking(move || bcrypt::hash(&password, bcrypt::DEFAULT_COST)).await {
         Ok(hash_result) => hash_result,
-        Err(join_error) => Err(bcrypt::BcryptError::InvalidCost(join_error.to_string())),
+        Err(_join_error) => {
+            // Fallback: run directly if spawn_blocking fails (e.g., in code coverage tools)
+            bcrypt::hash(&password_clone, bcrypt::DEFAULT_COST)
+        }
     }
 }
 
 pub async fn verify_password(password: &str, hash: &str) -> Result<bool, bcrypt::BcryptError> {
     let password = password.to_string();
     let hash = hash.to_string();
+    let password_clone = password.clone();
+    let hash_clone = hash.clone();
+    // Try spawn_blocking first, fallback to direct call if it fails (e.g., in tarpaulin)
     match tokio::task::spawn_blocking(move || bcrypt::verify(&password, &hash)).await {
         Ok(verify_result) => verify_result,
-        Err(join_error) => Err(bcrypt::BcryptError::InvalidCost(join_error.to_string())),
+        Err(_join_error) => {
+            // Fallback: run directly if spawn_blocking fails (e.g., in code coverage tools)
+            bcrypt::verify(&password_clone, &hash_clone)
+        }
     }
 }
 
