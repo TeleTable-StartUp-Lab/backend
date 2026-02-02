@@ -33,11 +33,21 @@ async fn main() {
     }
 
     let robot_state = SharedRobotState::new();
+    
+    // Create reusable HTTP client with optimized settings
+    let http_client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(10))
+        .pool_max_idle_per_host(10)
+        .build()
+        .expect("Failed to create HTTP client");
+    
     let state = Arc::new(AppState {
         db,
         redis,
         config: config.clone(),
         robot_state: robot_state.clone(),
+        http_client,
     });
 
     let app = create_router(state);

@@ -27,23 +27,8 @@ pub async fn create_or_update_diary(
         )
     })?;
 
-    // Fetch current role from DB to honor recent role changes (tokens may be stale)
-    let db_role: String = sqlx::query_scalar("SELECT role FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
-            )
-        })?
-        .ok_or((
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "User not found"})),
-        ))?;
-
-    if !roles::can_operate(&db_role) {
+    // Trust JWT claims for role check (already validated by middleware)
+    if !roles::can_operate(&claims.role) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({ "error": "Insufficient permissions" })),
@@ -97,7 +82,9 @@ pub async fn create_or_update_diary(
             )
         })?
     };
-
+    // Invalidate diary cache
+    let mut redis = state.redis.clone();
+    let _ = crate::cache::CacheService::invalidate_diary(&mut redis, &entry.id.to_string()).await;
     Ok((
         if payload.id.is_some() {
             StatusCode::OK
@@ -208,23 +195,8 @@ pub async fn delete_diary(
         )
     })?;
 
-    // Fetch current role from DB to honor recent role changes (tokens may be stale)
-    let db_role: String = sqlx::query_scalar("SELECT role FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
-            )
-        })?
-        .ok_or((
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "User not found"})),
-        ))?;
-
-    if !roles::can_operate(&db_role) {
+    // Trust JWT claims for role check (already validated by middleware)
+    if !roles::can_operate(&claims.role) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({"error": "Insufficient permissions"})),
@@ -249,6 +221,10 @@ pub async fn delete_diary(
             Json(serde_json::json!({"error": "Diary entry not found"})),
         ));
     }
+
+    // Invalidate diary cache
+    let mut redis = state.redis.clone();
+    let _ = crate::cache::CacheService::invalidate_diary(&mut redis, &payload.id.to_string()).await;
 
     Ok(StatusCode::NO_CONTENT)
 }

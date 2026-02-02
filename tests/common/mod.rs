@@ -38,11 +38,20 @@ pub async fn spawn_app(pool: PgPool) -> Result<TestApp, String> {
 
     let robot_state = SharedRobotState::new();
 
+    // Create HTTP client for tests
+    let http_client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(10))
+        .pool_max_idle_per_host(10)
+        .build()
+        .expect("Failed to create HTTP client");
+
     let state = Arc::new(AppState {
         db: pool.clone(),
         redis,
         config,
         robot_state: robot_state.clone(),
+        http_client,
     });
 
     let router = create_router(state.clone());
