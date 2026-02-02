@@ -66,6 +66,30 @@ services:
       retries: 3
       start_period: 40s
 
+  postgres_backup:
+    image: prodrigestivill/postgres-backup-local:16
+    container_name: teletable_postgres_backup
+    restart: unless-stopped
+    user: postgres:postgres
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-teletable_db}
+      POSTGRES_USER: ${POSTGRES_USER:-teletable}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password}
+      POSTGRES_EXTRA_OPTS: -Z6 --schema=public --blobs
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: 7
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_KEEP_MONTHS: 6
+      HEALTHCHECK_PORT: 8080
+    volumes:
+      - ./backups:/backups
+    networks:
+      - teletable_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
     driver: local
