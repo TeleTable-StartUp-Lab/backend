@@ -70,7 +70,6 @@ services:
     image: prodrigestivill/postgres-backup-local:16
     container_name: teletable_postgres_backup
     restart: unless-stopped
-    user: postgres:postgres
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_DB: ${POSTGRES_DB:-teletable_db}
