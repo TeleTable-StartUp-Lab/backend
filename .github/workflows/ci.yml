@@ -1,4 +1,4 @@
-name: CI
+name: Tests
 
 on:
   push:
@@ -62,12 +62,8 @@ jobs:
 
       - name: Run Tests
         run: cargo test
+
         env:
           DATABASE_URL: postgres://user:password@localhost:5432/teletable_test
           JWT_SECRET: "test_secret_key_for_testing_purposes"
           ROBOT_API_KEY: "test_robot_api_key"
-
-        env:
-            DATABASE_URL: postgres://user:password@localhost:5432/teletable_test
-            JWT_SECRET: "test_secret_key_for_testing_purposes"
-            ROBOT_API_KEY: "test_robot_api_key"
