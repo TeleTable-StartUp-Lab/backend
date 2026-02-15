@@ -16,7 +16,7 @@ impl CacheService {
         user_id: &str,
         user_data: &T,
     ) -> Result<(), redis::RedisError> {
-        let key = format!("user:{}", user_id);
+        let key = format!("user:{user_id}");
         let value = serde_json::to_string(user_data).unwrap_or_default();
         redis.set_ex(key, value, USER_CACHE_TTL).await
     }
@@ -26,7 +26,7 @@ impl CacheService {
         redis: &mut ConnectionManager,
         user_id: &str,
     ) -> Result<Option<T>, redis::RedisError> {
-        let key = format!("user:{}", user_id);
+        let key = format!("user:{user_id}");
         let value: Option<String> = redis.get(key).await?;
         Ok(value.and_then(|v| serde_json::from_str(&v).ok()))
     }
@@ -36,7 +36,7 @@ impl CacheService {
         redis: &mut ConnectionManager,
         user_id: &str,
     ) -> Result<(), redis::RedisError> {
-        let key = format!("user:{}", user_id);
+        let key = format!("user:{user_id}");
         redis.del(key).await
     }
 
@@ -47,11 +47,13 @@ impl CacheService {
         claims: &str,
         user_id: &str,
     ) -> Result<(), redis::RedisError> {
-        let key = format!("jwt:{}", token_hash);
-        redis.set_ex::<_, _, ()>(&key, claims, JWT_CACHE_TTL).await?;
+        let key = format!("jwt:{token_hash}");
+        redis
+            .set_ex::<_, _, ()>(&key, claims, JWT_CACHE_TTL)
+            .await?;
 
         // Track this token hash under the user so we can invalidate later
-        let user_jwt_key = format!("user_jwts:{}", user_id);
+        let user_jwt_key = format!("user_jwts:{user_id}");
         let _: () = redis.sadd(&user_jwt_key, token_hash).await?;
         redis.expire(user_jwt_key, JWT_CACHE_TTL as i64).await
     }
@@ -61,7 +63,7 @@ impl CacheService {
         redis: &mut ConnectionManager,
         token_hash: &str,
     ) -> Result<Option<String>, redis::RedisError> {
-        let key = format!("jwt:{}", token_hash);
+        let key = format!("jwt:{token_hash}");
         redis.get(key).await
     }
 
@@ -70,10 +72,10 @@ impl CacheService {
         redis: &mut ConnectionManager,
         user_id: &str,
     ) -> Result<(), redis::RedisError> {
-        let user_jwt_key = format!("user_jwts:{}", user_id);
+        let user_jwt_key = format!("user_jwts:{user_id}");
         let token_hashes: Vec<String> = redis.smembers(&user_jwt_key).await?;
         for hash in &token_hashes {
-            let jwt_key = format!("jwt:{}", hash);
+            let jwt_key = format!("jwt:{hash}");
             let _: () = redis.del(&jwt_key).await?;
         }
         let _: () = redis.del(&user_jwt_key).await?;
@@ -86,7 +88,7 @@ impl CacheService {
         diary_id: &str,
         diary_data: &T,
     ) -> Result<(), redis::RedisError> {
-        let key = format!("diary:{}", diary_id);
+        let key = format!("diary:{diary_id}");
         let value = serde_json::to_string(diary_data).unwrap_or_default();
         redis.set_ex(key, value, DIARY_CACHE_TTL).await
     }
@@ -96,7 +98,7 @@ impl CacheService {
         redis: &mut ConnectionManager,
         diary_id: &str,
     ) -> Result<Option<T>, redis::RedisError> {
-        let key = format!("diary:{}", diary_id);
+        let key = format!("diary:{diary_id}");
         let value: Option<String> = redis.get(key).await?;
         Ok(value.and_then(|v| serde_json::from_str(&v).ok()))
     }
@@ -106,7 +108,7 @@ impl CacheService {
         redis: &mut ConnectionManager,
         diary_id: &str,
     ) -> Result<(), redis::RedisError> {
-        let key = format!("diary:{}", diary_id);
+        let key = format!("diary:{diary_id}");
         redis.del(key).await
     }
 
@@ -115,7 +117,7 @@ impl CacheService {
         redis: &mut ConnectionManager,
         user_id: &str,
     ) -> Result<(), redis::RedisError> {
-        let pattern = format!("diary:user:{}:*", user_id);
+        let pattern = format!("diary:user:{user_id}:*");
         let keys: Vec<String> = redis.keys(pattern).await?;
         if !keys.is_empty() {
             redis.del::<_, ()>(keys).await?;

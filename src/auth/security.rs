@@ -109,8 +109,10 @@ pub async fn auth_middleware(
     // Try to get cached JWT validation first
     let token_hash = format!("{:x}", md5::compute(token));
     let mut redis = state.redis.clone();
-    
-    let mut claims = if let Ok(Some(cached_claims)) = crate::cache::CacheService::get_jwt_validation(&mut redis, &token_hash).await {
+
+    let mut claims = if let Ok(Some(cached_claims)) =
+        crate::cache::CacheService::get_jwt_validation(&mut redis, &token_hash).await
+    {
         serde_json::from_str(&cached_claims).map_err(|_| {
             (
                 StatusCode::UNAUTHORIZED,
@@ -124,12 +126,18 @@ pub async fn auth_middleware(
                 Json(json!({"error": "Invalid or expired token"})),
             )
         })?;
-        
+
         // Cache the validated JWT
         if let Ok(claims_json) = serde_json::to_string(&claims) {
-            let _ = crate::cache::CacheService::cache_jwt_validation(&mut redis, &token_hash, &claims_json, &claims.sub).await;
+            let _ = crate::cache::CacheService::cache_jwt_validation(
+                &mut redis,
+                &token_hash,
+                &claims_json,
+                &claims.sub,
+            )
+            .await;
         }
-        
+
         claims
     };
 
@@ -137,16 +145,18 @@ pub async fn auth_middleware(
     // take effect immediately, even if the JWT still contains the old role.
     if let Ok(user_id) = uuid::Uuid::parse_str(&claims.sub) {
         // Try user cache first, then fall back to DB
-        let current_role = if let Ok(Some(cached_user)) = crate::cache::CacheService::get_user::<crate::auth::models::User>(&mut redis, &claims.sub).await {
-            Some(cached_user.role)
-        } else if let Ok(row) = sqlx::query_scalar::<_, String>("SELECT role FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_one(&state.db)
-            .await
+        let current_role = if let Ok(Some(cached_user)) = crate::cache::CacheService::get_user::<
+            crate::auth::models::User,
+        >(&mut redis, &claims.sub)
+        .await
         {
-            Some(row)
+            Some(cached_user.role)
         } else {
-            None
+            sqlx::query_scalar::<_, String>("SELECT role FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_one(&state.db)
+                .await
+                .ok()
         };
 
         if let Some(role) = current_role {
@@ -154,7 +164,13 @@ pub async fn auth_middleware(
                 claims.role = role;
                 // Update the cached JWT with the corrected role
                 if let Ok(claims_json) = serde_json::to_string(&claims) {
-                    let _ = crate::cache::CacheService::cache_jwt_validation(&mut redis, &token_hash, &claims_json, &claims.sub).await;
+                    let _ = crate::cache::CacheService::cache_jwt_validation(
+                        &mut redis,
+                        &token_hash,
+                        &claims_json,
+                        &claims.sub,
+                    )
+                    .await;
                 }
             }
         }
@@ -193,8 +209,12 @@ mod tests {
         let hash = hash_password(password).await.expect("hashing failed");
 
         assert_ne!(password, hash);
-        assert!(verify_password(password, &hash).await.expect("verification failed"));
-        assert!(!verify_password("wrong_password", &hash).await.expect("verification failed"));
+        assert!(verify_password(password, &hash)
+            .await
+            .expect("verification failed"));
+        assert!(!verify_password("wrong_password", &hash)
+            .await
+            .expect("verification failed"));
     }
 
     #[test]

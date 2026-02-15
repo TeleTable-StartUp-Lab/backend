@@ -108,7 +108,7 @@ pub async fn register_robot(
     }
 
     let port = payload.port;
-    let url = format!("http://{}:{}", ip, port);
+    let url = format!("http://{ip}:{port}");
 
     let mut url_lock = state.robot_state.robot_url.write().await;
     if url_lock.as_deref() != Some(&url) {
