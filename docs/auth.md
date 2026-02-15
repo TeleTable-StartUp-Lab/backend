@@ -19,6 +19,8 @@ This document describes the **auth-related HTTP API** implemented in the backend
 - Authenticated endpoints require the header:
   - `Authorization: Bearer <jwt>`
 - The backend verifies the token using `JWT_SECRET` (HMAC; jsonwebtoken defaults) and validates expiry (`exp`).
+- **Real-time role enforcement:** On every authenticated request, the auth middleware fetches the user's **current role from the database** (with a Redis user-cache fast path) and overrides the role embedded in the JWT. This ensures role changes (e.g. Admin demoting an Operator to Viewer) take effect immediately — the user does not need to log out and back in.
+- **JWT cache invalidation on role change:** When an admin updates a user via `POST /user`, all cached JWT validation entries for that user are invalidated in Redis, forcing a fresh token decode and role lookup on the next request.
 
 ## Roles and permissions
 
@@ -36,8 +38,6 @@ The backend uses three roles: **Admin**, **Operator**, and **Viewer**. Expected 
 | Manage route queue (`POST /routes`, `DELETE /routes/:id`, `POST /routes/optimize`) | Yes                       | No              | No              |
 | Read robot nodes/status (`GET /nodes`, `GET /status`)                              | Yes                       | Yes             | Yes             |
 
-Known issue: the diary handlers currently allow any authenticated user (including Viewers) to create, update, and delete entries. Until the handler is hardened, clients should treat this as a bug and avoid granting those actions to Viewers at the UI layer.
-
 ### JWT claims
 
 Tokens contain these claims (stored in request extensions by middleware):
@@ -46,10 +46,12 @@ Tokens contain these claims (stored in request extensions by middleware):
 {
   "sub": "<user uuid>",
   "name": "<user name>",
-  "role": "user|admin",
+  "role": "Admin|Operator|Viewer",
   "exp": 1730000000
 }
 ```
+
+> **Note:** The `role` claim is set at login time, but the auth middleware always refreshes it from the database before passing claims to handlers. The JWT-embedded role is effectively a hint; the authoritative role is always the current database value.
 
 ### Common auth errors (middleware)
 
@@ -62,7 +64,7 @@ For routes protected by auth middleware:
 
 ### Admin authorization
 
-Admin routes require `claims.role == "admin"`.
+Admin routes require `claims.role == "Admin"` (checked against the database-refreshed role, not the raw JWT claim).
 
 - Not authenticated / claims missing → `401` with `{"error":"No authentication information found"}`
 - Authenticated but not admin → `403` with `{"error":"Admin access required"}`
@@ -241,6 +243,8 @@ Update a user’s `name`, `email`, and/or `role`.
 ```
 
 All of `name`, `email`, `role`, `password` are optional; `id` is required. If `password` is provided, it is bcrypt-hashed before being stored. Empty passwords are rejected with `400`.
+
+> **Side effects:** When a user is updated, the backend invalidates both the **user data cache** and all **cached JWT validations** for that user in Redis. This ensures role changes take effect on the very next request the affected user makes.
 
 #### Responses
 

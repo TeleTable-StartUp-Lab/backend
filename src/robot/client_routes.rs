@@ -24,6 +24,7 @@ use chrono::Utc;
 pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let robot_state = state.robot_state.current_state.read().await;
     let lock_state = state.robot_state.manual_lock.read().await;
+    let robot_connected = state.robot_state.is_robot_connected().await;
 
     let (system_health, battery_level, drive_mode, cargo_status, position, last_route) =
         if let Some(rs) = &*robot_state {
@@ -53,7 +54,11 @@ pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse
             )
         };
 
-    let manual_lock_holder_name = lock_state.as_ref().map(|l| l.holder_name.clone());
+    // Only report lock holder if the lock has not expired
+    let manual_lock_holder_name = lock_state
+        .as_ref()
+        .filter(|l| l.expires_at > chrono::Utc::now())
+        .map(|l| l.holder_name.clone());
 
     let status = StatusResponse {
         system_health,
@@ -63,6 +68,7 @@ pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse
         last_route,
         position,
         manual_lock_holder_name,
+        robot_connected,
     };
     Json(status)
 }
@@ -189,18 +195,16 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                     continue;
                 }
 
-                // Operator Logic
-                // Must hold lock to drive manually or send commands?
-                // "acquire the manual mode lock"
+                // Operator must hold a non-expired lock to send commands
                 let lock = state.robot_state.manual_lock.read().await;
-                let is_holder = if let Some(l) = &*lock {
+                let is_valid_holder = if let Some(l) = &*lock {
                     l.holder_id.to_string() == claims.sub
+                        && l.expires_at > chrono::Utc::now()
                 } else {
                     false
                 };
 
-                if is_holder {
-                    // Verify allow-list if needed (we only have expected commands in enum)
+                if is_valid_holder {
                     let _ = state.robot_state.command_sender.send(cmd);
                 }
             }
@@ -409,19 +413,31 @@ pub async fn release_lock(
 
 pub async fn check_robot_connection(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let robot_url = state.robot_state.robot_url.read().await;
+    let robot_connected = state.robot_state.is_robot_connected().await;
 
     if let Some(url) = &*robot_url {
+        if !robot_connected {
+            return Json(serde_json::json!({
+                "status": "error",
+                "connected": false,
+                "message": "Robot registered but no recent state updates (stale)",
+                "url": url
+            }));
+        }
+
         match state.http_client.get(format!("{url}/health")).send().await {
             Ok(resp) => {
                 let status = resp.status();
                 Json(serde_json::json!({
                     "status": "success",
+                    "connected": true,
                     "robot_status": status.as_u16(),
                     "url": url
                 }))
             }
             Err(e) => Json(serde_json::json!({
                 "status": "error",
+                "connected": false,
                 "message": format!("Failed to reach robot: {}", e),
                 "url": url
             })),
@@ -429,6 +445,7 @@ pub async fn check_robot_connection(State(state): State<Arc<AppState>>) -> impl 
     } else {
         Json(serde_json::json!({
             "status": "error",
+            "connected": false,
             "message": "No robot URL registered"
         }))
     }

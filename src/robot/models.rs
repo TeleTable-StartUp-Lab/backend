@@ -72,6 +72,7 @@ pub struct StatusResponse {
     pub last_route: Option<LastRoute>,
     pub position: String,
     pub manual_lock_holder_name: Option<String>,
+    pub robot_connected: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -27,6 +27,7 @@ This document describes the **robot-related HTTP + WebSocket API** implemented i
 The backend maintains in-memory robot state in `SharedRobotState`:
 
 - `current_state`: last reported robot telemetry (`RobotState`)
+- `last_state_update`: timestamp of the most recent `/table/state` call (used for staleness detection)
 - `robot_url`: registered robot base URL (via `/table/register`)
 - `cached_nodes`: cached result of robot `/nodes`
 - `manual_lock`: who holds manual drive lock and when it expires
@@ -34,10 +35,29 @@ The backend maintains in-memory robot state in `SharedRobotState`:
 - `queue`: Sequence of pending `QueuedRoute`s
 - `active_route`: Currently executing route from queue
 
+### Robot Connection Staleness
+
+The backend tracks whether the robot is "connected" by comparing `last_state_update` against a **30-second timeout** (`ROBOT_STALE_TIMEOUT_SECS`). If the robot has not sent a `/table/state` update within this window, it is considered disconnected.
+
+### Background Cleanup Task
+
+A background task runs every **5 seconds** (`CLEANUP_INTERVAL_SECS`) and performs:
+
+1. **Expired lock cleanup:** Clears any manual lock whose `expires_at` is in the past.
+2. **Stale robot cleanup:** If the robot is stale (no updates in 30s):
+   - Clears `active_route` so the route queue is not permanently stuck.
+   - Clears `robot_url` so `/status` and `/robot/check` correctly reflect the disconnection.
+
 ### Queue & Preemption Logic
 
 **Queue Processing:**
-The backend processes the queue sequentially. A `NAVIGATE` command is sent to the robot only after the previous cycle is confirmed finished (Robot State `driveMode` = `IDLE`).
+The backend processes the queue sequentially. A `NAVIGATE` command is sent to the robot only when all of the following conditions are met:
+
+1. **No active (non-expired) manual lock** — expired locks are ignored.
+2. **Robot is connected** — `last_state_update` is within the 30-second staleness threshold.
+3. **Robot is IDLE** — `driveMode` equals `"IDLE"`.
+4. **No active route** — `active_route` is `None`.
+5. **Queue is non-empty.**
 
 **Admin Preemption:**
 If an **Admin** sends a navigation command via WebSocket while a queued route is active:
@@ -128,7 +148,8 @@ Return robot status for UI/clients.
 
 - If the robot has never reported telemetry, returns default values (`UNKNOWN`, `0`, etc.).
 - Computes `lastRoute` only when both `lastNode` and `targetNode` exist in the current telemetry.
-- Includes `manualLockHolderName` if a lock is set (does not check expiry here).
+- Includes `manualLockHolderName` **only if the lock has not expired**. Expired locks are treated as if no lock exists.
+- Includes `robotConnected` indicating whether the robot has sent a state update within the last 30 seconds.
 
 #### Response (`200 OK`)
 
@@ -140,7 +161,8 @@ Return robot status for UI/clients.
   "cargoStatus": "EMPTY|UNKNOWN",
   "lastRoute": { "start_node": "Home", "end_node": "Kitchen" },
   "position": "Home|UNKNOWN",
-  "manualLockHolderName": "Alice"
+  "manualLockHolderName": "Alice",
+  "robotConnected": true
 }
 ```
 
@@ -185,7 +207,12 @@ Update the backend’s cached telemetry.
 
 - Header: `X-Api-Key`
 - Body: `RobotState` JSON (camelCase)
+#### Behavior
 
+- Stores the telemetry in `current_state`.
+- Records `last_state_update` to the current UTC timestamp (used for staleness detection).
+- If an `active_route` exists and the robot reports `driveMode: "IDLE"`, the active route is cleared (route completed).
+- Triggers queue processing after updating state.
 #### Responses
 
 - `200 OK`:
@@ -290,8 +317,10 @@ Acquire the manual-drive lock.
 
 #### Behavior
 
-- If another user holds a non-expired lock, acquisition is refused.
+- If another user holds a non-expired lock, acquisition is refused (unless requester is Admin, who can forcibly revoke).
 - On success, lock expiry is set to `now + 30 seconds`.
+- **Lock renewal:** The same user can re-acquire the lock to extend its expiry. The frontend automatically renews every 15 seconds to prevent silent expiry during active use.
+- **Operators** cannot acquire the lock while an automated route is active. **Admins** can.
 
 #### Responses (note: **HTTP status is always 200**)
 
@@ -337,15 +366,27 @@ Check if the backend can reach the discovered robot.
 
 #### Behavior
 
-- If a robot URL is known, performs `GET {robot_url}/health`.
+- First checks **staleness**: if the robot has not sent a `/table/state` update within the last 30 seconds, it is reported as disconnected without attempting an HTTP health check.
+- If not stale and a robot URL is known, performs `GET {robot_url}/health`.
 - Returns the HTTP status code returned by the robot in `robot_status`.
 
 #### Responses (note: **HTTP status is always 200**)
 
-- Success (reachable):
+- Success (reachable and not stale):
 
 ```json
-{ "status": "success", "robot_status": 200, "url": "http://..." }
+{ "status": "success", "connected": true, "robot_status": 200, "url": "http://..." }
+```
+
+- Error (robot registered but stale):
+
+```json
+{
+  "status": "error",
+  "connected": false,
+  "message": "Robot registered but no recent state updates (stale)",
+  "url": "http://..."
+}
 ```
 
 - Error (request failed):
@@ -353,6 +394,7 @@ Check if the backend can reach the discovered robot.
 ```json
 {
   "status": "error",
+  "connected": false,
   "message": "Failed to reach robot: ...",
   "url": "http://..."
 }
@@ -361,7 +403,7 @@ Check if the backend can reach the discovered robot.
 - Error (no robot registered):
 
 ```json
-{ "status": "error", "message": "No robot URL registered" }
+{ "status": "error", "connected": false, "message": "No robot URL registered" }
 ```
 
 ---
@@ -379,14 +421,20 @@ WebSocket used to send manual control commands (as `RobotCommand` JSON text fram
 
 #### Lock enforcement
 
-- For each incoming text frame, the backend checks whether the sender is the current lock holder.
-- If the sender is not the holder, the command is silently ignored.
+- For each incoming text frame, the backend checks whether the sender is the current lock holder **and** whether the lock has not expired.
+- If the sender is not the holder, or the lock has expired, the command is silently ignored.
 - If the command cannot be parsed as `RobotCommand`, it is silently ignored.
 
-#### Important behavioral note
+#### Operator restrictions
 
-The backend checks **only holder identity** here and does **not** check `expires_at` before relaying commands.
-If a lock remains stored after expiry (no background cleanup), the old holder may still be treated as holder until someone else acquires a new lock.
+- Operators **cannot** send `NAVIGATE` or `CANCEL` commands via WebSocket; those are silently dropped.
+- Operators must hold a valid (non-expired) lock to send any other command.
+
+#### Admin behavior
+
+- Admins can send any command without holding the lock.
+- If an Admin sends a `NAVIGATE` command while an Operator holds the lock, the lock is forcibly revoked.
+- Admin navigation preempts any active queued route (cancels it and moves it to the front of the queue).
 
 ---
 

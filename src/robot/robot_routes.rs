@@ -28,10 +28,14 @@ pub async fn update_robot_state(
             .into_response();
     }
 
-    // Update state
+    // Update state and record the timestamp
     {
         let mut current_state = state.robot_state.current_state.write().await;
         *current_state = Some(payload.clone());
+    }
+    {
+        let mut last_update = state.robot_state.last_state_update.write().await;
+        *last_update = Some(chrono::Utc::now());
     }
 
     // Queue Logic
