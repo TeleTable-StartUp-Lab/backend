@@ -110,7 +110,7 @@ pub async fn auth_middleware(
     let token_hash = format!("{:x}", md5::compute(token));
     let mut redis = state.redis.clone();
     
-    let claims = if let Ok(Some(cached_claims)) = crate::cache::CacheService::get_jwt_validation(&mut redis, &token_hash).await {
+    let mut claims = if let Ok(Some(cached_claims)) = crate::cache::CacheService::get_jwt_validation(&mut redis, &token_hash).await {
         serde_json::from_str(&cached_claims).map_err(|_| {
             (
                 StatusCode::UNAUTHORIZED,
@@ -127,11 +127,38 @@ pub async fn auth_middleware(
         
         // Cache the validated JWT
         if let Ok(claims_json) = serde_json::to_string(&claims) {
-            let _ = crate::cache::CacheService::cache_jwt_validation(&mut redis, &token_hash, &claims_json).await;
+            let _ = crate::cache::CacheService::cache_jwt_validation(&mut redis, &token_hash, &claims_json, &claims.sub).await;
         }
         
         claims
     };
+
+    // Always fetch the current role from the database to ensure role changes
+    // take effect immediately, even if the JWT still contains the old role.
+    if let Ok(user_id) = uuid::Uuid::parse_str(&claims.sub) {
+        // Try user cache first, then fall back to DB
+        let current_role = if let Ok(Some(cached_user)) = crate::cache::CacheService::get_user::<crate::auth::models::User>(&mut redis, &claims.sub).await {
+            Some(cached_user.role)
+        } else if let Ok(row) = sqlx::query_scalar::<_, String>("SELECT role FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+        {
+            Some(row)
+        } else {
+            None
+        };
+
+        if let Some(role) = current_role {
+            if role != claims.role {
+                claims.role = role;
+                // Update the cached JWT with the corrected role
+                if let Ok(claims_json) = serde_json::to_string(&claims) {
+                    let _ = crate::cache::CacheService::cache_jwt_validation(&mut redis, &token_hash, &claims_json, &claims.sub).await;
+                }
+            }
+        }
+    }
 
     req.extensions_mut().insert(claims);
 

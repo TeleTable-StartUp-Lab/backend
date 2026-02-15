@@ -262,9 +262,10 @@ pub async fn update_user(
         )
     })?;
 
-    // Invalidate user cache after update
+    // Invalidate user cache and all JWT caches for this user after update
     let mut redis = state.redis.clone();
     let _ = crate::cache::CacheService::invalidate_user(&mut redis, &payload.id.to_string()).await;
+    let _ = crate::cache::CacheService::invalidate_user_jwts(&mut redis, &payload.id.to_string()).await;
 
     Ok(Json(updated_user.into()))
 }

@@ -40,14 +40,20 @@ impl CacheService {
         redis.del(key).await
     }
 
-    /// Cache JWT validation result
+    /// Cache JWT validation result and track the token hash for the user
     pub async fn cache_jwt_validation(
         redis: &mut ConnectionManager,
         token_hash: &str,
         claims: &str,
+        user_id: &str,
     ) -> Result<(), redis::RedisError> {
         let key = format!("jwt:{}", token_hash);
-        redis.set_ex(key, claims, JWT_CACHE_TTL).await
+        redis.set_ex::<_, _, ()>(&key, claims, JWT_CACHE_TTL).await?;
+
+        // Track this token hash under the user so we can invalidate later
+        let user_jwt_key = format!("user_jwts:{}", user_id);
+        let _: () = redis.sadd(&user_jwt_key, token_hash).await?;
+        redis.expire(user_jwt_key, JWT_CACHE_TTL as i64).await
     }
 
     /// Get cached JWT validation
@@ -57,6 +63,21 @@ impl CacheService {
     ) -> Result<Option<String>, redis::RedisError> {
         let key = format!("jwt:{}", token_hash);
         redis.get(key).await
+    }
+
+    /// Invalidate all cached JWT validations for a specific user
+    pub async fn invalidate_user_jwts(
+        redis: &mut ConnectionManager,
+        user_id: &str,
+    ) -> Result<(), redis::RedisError> {
+        let user_jwt_key = format!("user_jwts:{}", user_id);
+        let token_hashes: Vec<String> = redis.smembers(&user_jwt_key).await?;
+        for hash in &token_hashes {
+            let jwt_key = format!("jwt:{}", hash);
+            let _: () = redis.del(&jwt_key).await?;
+        }
+        let _: () = redis.del(&user_jwt_key).await?;
+        Ok(())
     }
 
     /// Cache diary entry
