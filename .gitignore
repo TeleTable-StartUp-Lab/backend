@@ -1,2 +1,7 @@
+# secrets 
 .env
+# cargo build directory
 target/
+
+backups/
+backend.log

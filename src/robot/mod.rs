@@ -56,11 +56,23 @@ pub async fn process_queue(state: &Arc<AppState>) {
         match state.robot_state.command_sender.send(cmd) {
             Ok(_) => {
                 // 7. Set Active
+                tracing::info!(
+                    route_id    = %next_route.id,
+                    start       = %next_route.start,
+                    destination = %next_route.destination,
+                    added_by    = %next_route.added_by,
+                    "Dispatched route from queue"
+                );
                 *active_route_guard = Some(next_route);
-                tracing::info!("Dispatched route from queue");
             }
             Err(e) => {
-                tracing::error!("Failed to dispatch route command: {}", e);
+                tracing::error!(
+                    route_id    = %next_route.id,
+                    start       = %next_route.start,
+                    destination = %next_route.destination,
+                    error       = %e,
+                    "Failed to dispatch route command - re-queuing"
+                );
                 // Push back to front?
                 queue.push_front(next_route);
             }

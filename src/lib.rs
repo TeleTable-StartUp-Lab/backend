@@ -3,6 +3,7 @@ pub mod cache;
 pub mod config;
 pub mod database;
 pub mod diary;
+pub mod logging;
 pub mod robot;
 
 use crate::auth::security::{admin_middleware, auth_middleware};
@@ -17,7 +18,7 @@ use redis::aio::ConnectionManager;
 pub use robot::state::SharedRobotState;
 use sqlx::PgPool;
 use std::sync::Arc;
-use tower_http::cors::CorsLayer;
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -110,6 +111,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .merge(admin_routes)
         .merge(robot_api_routes)
         .merge(robot_control_routes)
+        // HTTP request/response tracing (method, path, status, latency).
+        // Logged at DEBUG level so they don't spam INFO logs by default.
+        .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state)
 }

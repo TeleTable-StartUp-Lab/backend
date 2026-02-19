@@ -29,6 +29,11 @@ pub async fn create_or_update_diary(
 
     // Trust JWT claims for role check (already validated by middleware)
     if !roles::can_operate(&claims.role) {
+        tracing::warn!(
+            user_id = %user_id,
+            role    = %claims.role,
+            "Permission denied - diary write requires operator or above (403)"
+        );
         return Err((
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({ "error": "Insufficient permissions" })),
@@ -52,6 +57,12 @@ pub async fn create_or_update_diary(
         .fetch_optional(&state.db)
         .await
         .map_err(|e| {
+            tracing::error!(
+                query   = "UPDATE diary_entries SET ... WHERE id = ? AND owner = ?",
+                error   = %e,
+                user_id = %user_id,
+                "DB error updating diary entry"
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
@@ -76,6 +87,12 @@ pub async fn create_or_update_diary(
         .fetch_one(&state.db)
         .await
         .map_err(|e| {
+            tracing::error!(
+                query   = "INSERT INTO diary_entries ... RETURNING *",
+                error   = %e,
+                user_id = %user_id,
+                "DB error creating diary entry"
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
@@ -197,6 +214,11 @@ pub async fn delete_diary(
 
     // Trust JWT claims for role check (already validated by middleware)
     if !roles::can_operate(&claims.role) {
+        tracing::warn!(
+            user_id = %user_id,
+            role    = %claims.role,
+            "Permission denied - diary delete requires operator or above (403)"
+        );
         return Err((
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({"error": "Insufficient permissions"})),
@@ -209,6 +231,13 @@ pub async fn delete_diary(
         .execute(&state.db)
         .await
         .map_err(|e| {
+            tracing::error!(
+                query    = "DELETE FROM diary_entries WHERE id = ? AND owner = ?",
+                error    = %e,
+                user_id  = %user_id,
+                entry_id = %payload.id,
+                "DB error deleting diary entry"
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": format!("Database error: {}", e)})),

@@ -39,6 +39,12 @@ pub async fn add_route(
     Json(payload): Json<AddRouteRequest>,
 ) -> impl IntoResponse {
     if !roles::is_admin(&claims.role) {
+        tracing::warn!(
+            user_id = %claims.sub,
+            name    = %claims.name,
+            role    = %claims.role,
+            "Permission denied - add_route requires admin (403)"
+        );
         return StatusCode::FORBIDDEN.into_response();
     }
 
@@ -54,6 +60,14 @@ pub async fn add_route(
     queue.push_back(route.clone());
     drop(queue);
 
+    tracing::info!(
+        route_id    = %route.id,
+        start       = %route.start,
+        destination = %route.destination,
+        added_by    = %route.added_by,
+        "Route added to queue"
+    );
+
     // Trigger queue processing
     crate::robot::process_queue(&state).await;
 
@@ -66,12 +80,20 @@ pub async fn delete_route(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     if !roles::is_admin(&claims.role) {
+        tracing::warn!(
+            user_id  = %claims.sub,
+            name     = %claims.name,
+            role     = %claims.role,
+            route_id = %id,
+            "Permission denied - delete_route requires admin (403)"
+        );
         return StatusCode::FORBIDDEN.into_response();
     }
 
     let mut queue = state.robot_state.queue.write().await;
     if let Some(pos) = queue.iter().position(|r| r.id == id) {
         queue.remove(pos);
+        tracing::info!(route_id = %id, deleted_by = %claims.name, "Route removed from queue");
         StatusCode::NO_CONTENT.into_response()
     } else {
         StatusCode::NOT_FOUND.into_response()
@@ -83,6 +105,12 @@ pub async fn optimize_routes(
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
     if !roles::is_admin(&claims.role) {
+        tracing::warn!(
+            user_id = %claims.sub,
+            name    = %claims.name,
+            role    = %claims.role,
+            "Permission denied - optimize_routes requires admin (403)"
+        );
         return StatusCode::FORBIDDEN.into_response();
     }
 

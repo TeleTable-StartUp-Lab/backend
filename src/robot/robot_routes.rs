@@ -18,6 +18,7 @@ pub async fn update_robot_state(
     let api_key = headers.get("X-Api-Key").and_then(|v| v.to_str().ok());
 
     if api_key != Some(&state.config.robot_api_key) {
+        tracing::warn!("Robot state update rejected - invalid API key");
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({
@@ -27,8 +28,6 @@ pub async fn update_robot_state(
         )
             .into_response();
     }
-
-    // Update state and record the timestamp
     {
         let mut current_state = state.robot_state.current_state.write().await;
         *current_state = Some(payload.clone());
@@ -45,6 +44,7 @@ pub async fn update_robot_state(
         // Check if we just finished a route
         if active_route_guard.is_some() && payload.drive_mode == "IDLE" {
             // Assumption: IDLE means finished.
+            tracing::info!(drive_mode = %payload.drive_mode, "Active route finished - robot returned to IDLE");
             *active_route_guard = None;
         }
     }
@@ -66,6 +66,7 @@ pub async fn handle_robot_event(
     let api_key = headers.get("X-Api-Key").and_then(|v| v.to_str().ok());
 
     if api_key != Some(&state.config.robot_api_key) {
+        tracing::warn!("Robot event rejected - invalid API key");
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({
@@ -76,7 +77,7 @@ pub async fn handle_robot_event(
             .into_response();
     }
 
-    tracing::info!("Received robot event: {:?}", payload);
+    tracing::info!(event = ?payload, "Received robot event");
     // TODO: Handle specific events (e.g. notify users)
 
     Json(serde_json::json!({

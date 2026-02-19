@@ -20,8 +20,8 @@ pub async fn spawn_app(pool: PgPool) -> Result<TestApp, String> {
     // For simplicity in this environment, we might fail if redis isn't there.
     // Let's assume we can connect to standard redis or use a mocked object if we refactor AppState.
     // Refactoring AppState to use a Trait for Redis would be better, but for now:
-    let redis_client = redis::Client::open("redis://127.0.0.1/")
-        .map_err(|e| format!("Invalid Redis URL: {e}"))?;
+    let redis_client =
+        redis::Client::open("redis://127.0.0.1/").map_err(|e| format!("Invalid Redis URL: {e}"))?;
     let redis = redis_client
         .get_connection_manager()
         .await
@@ -66,7 +66,9 @@ pub async fn spawn_app(pool: PgPool) -> Result<TestApp, String> {
 pub async fn setup_test_app() -> Result<TestApp, String> {
     let database_url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .map_err(|_| "TEST_DATABASE_URL or DATABASE_URL must be set for integration tests".to_string())?;
+        .map_err(|_| {
+            "TEST_DATABASE_URL or DATABASE_URL must be set for integration tests".to_string()
+        })?;
 
     let pool = PgPoolOptions::new()
         .max_connections(5)

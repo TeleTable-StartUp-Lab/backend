@@ -9,15 +9,13 @@ mod common;
 /// Helper: create auth header with the test secret
 fn auth_header(role: &str) -> String {
     let token =
-        backend::auth::security::create_jwt("user-1", "Test User", role, "test_secret", 1)
-            .unwrap();
-    format!("Bearer {}", token)
+        backend::auth::security::create_jwt("user-1", "Test User", role, "test_secret", 1).unwrap();
+    format!("Bearer {token}")
 }
 
 fn auth_header_for(user_id: &str, name: &str, role: &str) -> String {
-    let token =
-        backend::auth::security::create_jwt(user_id, name, role, "test_secret", 1).unwrap();
-    format!("Bearer {}", token)
+    let token = backend::auth::security::create_jwt(user_id, name, role, "test_secret", 1).unwrap();
+    format!("Bearer {token}")
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +314,11 @@ async fn test_expired_lock_allows_new_acquisition() {
         });
     }
 
-    let auth = auth_header_for("11111111-1111-1111-1111-111111111111", "New User", "Operator");
+    let auth = auth_header_for(
+        "11111111-1111-1111-1111-111111111111",
+        "New User",
+        "Operator",
+    );
 
     let response = app
         .router
@@ -360,8 +362,11 @@ async fn test_lock_renewal_extends_expiry() {
         }
     };
 
-    let auth =
-        auth_header_for("22222222-2222-2222-2222-222222222222", "Lock User", "Operator");
+    let auth = auth_header_for(
+        "22222222-2222-2222-2222-222222222222",
+        "Lock User",
+        "Operator",
+    );
 
     // Acquire lock
     let _ = app
@@ -472,7 +477,11 @@ async fn test_process_queue_skipped_with_active_lock() {
 
     // Queue should still have the route
     let queue = app.state.robot_state.queue.read().await;
-    assert_eq!(queue.len(), 1, "Queue should not be processed while lock is active");
+    assert_eq!(
+        queue.len(),
+        1,
+        "Queue should not be processed while lock is active"
+    );
 
     // No command should have been sent
     assert!(
@@ -542,16 +551,22 @@ async fn test_process_queue_proceeds_with_expired_lock() {
 
     // Queue should be empty now
     let queue = app.state.robot_state.queue.read().await;
-    assert_eq!(queue.len(), 0, "Queue should be drained after processing with expired lock");
+    assert_eq!(
+        queue.len(),
+        0,
+        "Queue should be drained after processing with expired lock"
+    );
 
     // A Navigate command should have been sent
-    let cmd = rx.try_recv().expect("A command should have been dispatched");
+    let cmd = rx
+        .try_recv()
+        .expect("A command should have been dispatched");
     match cmd {
         backend::robot::models::RobotCommand::Navigate { start, destination } => {
             assert_eq!(start, "A");
             assert_eq!(destination, "B");
         }
-        other => panic!("Expected Navigate command, got: {:?}", other),
+        other => panic!("Expected Navigate command, got: {other:?}"),
     }
 }
 
@@ -627,7 +642,10 @@ async fn test_clear_expired_lock() {
     }
 
     let cleared = robot_state.clear_expired_lock().await;
-    assert!(cleared, "Should return true when an expired lock is cleared");
+    assert!(
+        cleared,
+        "Should return true when an expired lock is cleared"
+    );
 
     let lock = robot_state.manual_lock.read().await;
     assert!(lock.is_none(), "Lock should be None after clearing");
@@ -916,7 +934,11 @@ async fn test_select_route_blocked_by_active_lock() {
         });
     }
 
-    let auth = auth_header_for("33333333-3333-3333-3333-333333333333", "Route User", "Operator");
+    let auth = auth_header_for(
+        "33333333-3333-3333-3333-333333333333",
+        "Route User",
+        "Operator",
+    );
 
     let response = app
         .router
@@ -940,10 +962,7 @@ async fn test_select_route_blocked_by_active_lock() {
         .unwrap();
     let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(result["status"], "error");
-    assert!(result["message"]
-        .as_str()
-        .unwrap()
-        .contains("locked"));
+    assert!(result["message"].as_str().unwrap().contains("locked"));
 }
 
 // ---------------------------------------------------------------------------
@@ -972,8 +991,11 @@ async fn test_only_holder_can_release_lock() {
     }
 
     // Another user tries to release
-    let other_auth =
-        auth_header_for("55555555-5555-5555-5555-555555555555", "Other User", "Operator");
+    let other_auth = auth_header_for(
+        "55555555-5555-5555-5555-555555555555",
+        "Other User",
+        "Operator",
+    );
 
     let response = app
         .router
@@ -993,7 +1015,10 @@ async fn test_only_holder_can_release_lock() {
         .await
         .unwrap();
     let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(result["status"], "error", "Non-holder should not be able to release lock");
+    assert_eq!(
+        result["status"], "error",
+        "Non-holder should not be able to release lock"
+    );
 
     // Verify lock is still held
     let lock = app.state.robot_state.manual_lock.read().await;

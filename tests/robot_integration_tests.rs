@@ -31,7 +31,7 @@ async fn test_get_nodes_proxies_to_robot() {
     let token =
         backend::auth::security::create_jwt("user_id", "Test User", "user", "test_secret", 1)
             .unwrap();
-    let auth_header = format!("Bearer {}", token);
+    let auth_header = format!("Bearer {token}");
 
     // Mock Robot Server
     let mock_server = MockServer::start().await;

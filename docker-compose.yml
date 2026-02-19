@@ -53,6 +53,8 @@ services:
       SERVER_ADDRESS: 0.0.0.0:3003
       RUST_LOG: ${RUST_LOG:-info}
       ROBOT_API_KEY: ${ROBOT_API_KEY:-secret-robot-key}
+    volumes:
+      - ./logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy

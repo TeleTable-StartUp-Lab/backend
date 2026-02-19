@@ -104,7 +104,10 @@ pub async fn manual_control_ws(
 ) -> impl IntoResponse {
     let claims = match decode_jwt(&params.token, &state.config.jwt_secret) {
         Ok(c) => c,
-        Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, "WebSocket manual control - invalid token (401)");
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
     };
 
     ws.on_upgrade(move |socket| handle_manual_socket(socket, state, claims))
@@ -251,10 +254,20 @@ pub async fn get_nodes(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 
                         return (StatusCode::OK, Json(nodes_resp)).into_response();
                     }
+                } else {
+                    tracing::warn!(
+                        endpoint      = %format!("{url}/nodes"),
+                        status_code   = resp.status().as_u16(),
+                        "External API failure - robot /nodes returned non-success status"
+                    );
                 }
             }
             Err(e) => {
-                tracing::error!("Failed to fetch nodes from robot: {}", e);
+                tracing::error!(
+                    endpoint = %format!("{url}/nodes"),
+                    error    = %e,
+                    "External API failure - could not reach robot /nodes"
+                );
             }
         }
     }
@@ -273,6 +286,12 @@ pub async fn select_route(
     Json(payload): Json<RouteSelectionRequest>,
 ) -> impl IntoResponse {
     if !roles::can_operate(&claims.role) {
+        tracing::warn!(
+            user_id = %claims.sub,
+            name    = %claims.name,
+            role    = %claims.role,
+            "Permission denied - select_route requires operator or above (403)"
+        );
         return StatusCode::FORBIDDEN.into_response();
     }
 
@@ -321,6 +340,12 @@ pub async fn acquire_lock(
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
     if !roles::can_operate(&claims.role) {
+        tracing::warn!(
+            user_id = %claims.sub,
+            name    = %claims.name,
+            role    = %claims.role,
+            "Permission denied - acquire_lock requires operator or above (403)"
+        );
         return StatusCode::FORBIDDEN.into_response();
     }
 
@@ -358,7 +383,7 @@ pub async fn acquire_lock(
     if let Ok(user_id) = Uuid::parse_str(&claims.sub) {
         *lock = Some(super::state::LockInfo {
             holder_id: user_id,
-            holder_name: claims.name,
+            holder_name: claims.name.clone(),
             expires_at: chrono::Utc::now() + chrono::Duration::seconds(30),
         });
 
@@ -367,6 +392,13 @@ pub async fn acquire_lock(
         } else {
             "Lock acquired"
         };
+
+        tracing::info!(
+            user_id = %user_id,
+            name    = %claims.name,
+            role    = %claims.role,
+            "Manual drive lock acquired"
+        );
 
         Json(serde_json::json!({
             "status": "success",
@@ -387,14 +419,25 @@ pub async fn release_lock(
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
     if !roles::can_operate(&claims.role) {
+        tracing::warn!(
+            user_id = %claims.sub,
+            name    = %claims.name,
+            role    = %claims.role,
+            "Permission denied - release_lock requires operator or above (403)"
+        );
         return StatusCode::FORBIDDEN.into_response();
     }
 
     let mut lock = state.robot_state.manual_lock.write().await;
 
-    // Only holder can release
+    // Only holder can release.
     if let Some(l) = &*lock {
         if l.holder_id.to_string() == claims.sub {
+            tracing::info!(
+                user_id = %claims.sub,
+                name    = %claims.name,
+                "Manual drive lock released"
+            );
             *lock = None;
             return Json(serde_json::json!({
                 "status": "success",
@@ -428,6 +471,13 @@ pub async fn check_robot_connection(State(state): State<Arc<AppState>>) -> impl 
         match state.http_client.get(format!("{url}/health")).send().await {
             Ok(resp) => {
                 let status = resp.status();
+                if !status.is_success() {
+                    tracing::warn!(
+                        endpoint    = %format!("{url}/health"),
+                        status_code = status.as_u16(),
+                        "External API failure - robot /health returned non-success status"
+                    );
+                }
                 Json(serde_json::json!({
                     "status": "success",
                     "connected": true,
@@ -435,12 +485,19 @@ pub async fn check_robot_connection(State(state): State<Arc<AppState>>) -> impl 
                     "url": url
                 }))
             }
-            Err(e) => Json(serde_json::json!({
-                "status": "error",
-                "connected": false,
-                "message": format!("Failed to reach robot: {}", e),
-                "url": url
-            })),
+            Err(e) => {
+                tracing::error!(
+                    endpoint = %format!("{url}/health"),
+                    error    = %e,
+                    "External API failure - could not reach robot /health"
+                );
+                Json(serde_json::json!({
+                    "status": "error",
+                    "connected": false,
+                    "message": format!("Failed to reach robot: {}", e),
+                    "url": url
+                }))
+            }
         }
     } else {
         Json(serde_json::json!({

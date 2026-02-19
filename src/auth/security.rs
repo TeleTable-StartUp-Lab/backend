@@ -82,16 +82,21 @@ pub async fn auth_middleware(
     #[allow(unused_mut)] mut req: Request,
     next: Next,
 ) -> Result<Response, impl IntoResponse> {
+    let path   = req.uri().path().to_string();
+    let method = req.method().to_string();
+
     let auth_header = req.headers().get(header::AUTHORIZATION);
 
     let auth_header = match auth_header {
         Some(header) => header.to_str().map_err(|_| {
+            tracing::warn!(method = %method, path = %path, "Invalid authorization header encoding (401)");
             (
                 StatusCode::UNAUTHORIZED,
                 Json(json!({"error": "Invalid authorization header"})),
             )
         })?,
         None => {
+            tracing::debug!(method = %method, path = %path, "Missing authorization header (401)");
             return Err((
                 StatusCode::UNAUTHORIZED,
                 Json(json!({"error": "Missing authorization header"})),
@@ -100,6 +105,7 @@ pub async fn auth_middleware(
     };
 
     let token = auth_header.strip_prefix("Bearer ").ok_or_else(|| {
+        tracing::warn!(method = %method, path = %path, "Invalid Authorization header format - missing Bearer prefix (401)");
         (
             StatusCode::UNAUTHORIZED,
             Json(json!({"error": "Invalid authorization header format"})),
@@ -120,7 +126,13 @@ pub async fn auth_middleware(
             )
         })?
     } else {
-        let claims = decode_jwt(token, &state.config.jwt_secret).map_err(|_| {
+        let claims = decode_jwt(token, &state.config.jwt_secret).map_err(|e| {
+            tracing::warn!(
+                method = %method,
+                path   = %path,
+                error  = %e,
+                "Invalid or expired JWT token (401)"
+            );
             (
                 StatusCode::UNAUTHORIZED,
                 Json(json!({"error": "Invalid or expired token"})),
@@ -182,14 +194,28 @@ pub async fn auth_middleware(
 }
 
 pub async fn admin_middleware(req: Request, next: Next) -> Result<Response, impl IntoResponse> {
-    let claims = req.extensions().get::<Claims>().ok_or_else(|| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "No authentication information found"})),
-        )
-    })?;
+    let path   = req.uri().path().to_string();
+    let method = req.method().to_string();
 
-    if !roles::is_admin(&claims.role) {
+    let (user_id, name, role) = {
+        let claims = req.extensions().get::<Claims>().ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "No authentication information found"})),
+            )
+        })?;
+        (claims.sub.clone(), claims.name.clone(), claims.role.clone())
+    };
+
+    if !roles::is_admin(&role) {
+        tracing::warn!(
+            user_id = %user_id,
+            name    = %name,
+            role    = %role,
+            method  = %method,
+            path    = %path,
+            "Permission denied - admin access required (403)"
+        );
         return Err((
             StatusCode::FORBIDDEN,
             Json(json!({"error": "Admin access required"})),

@@ -130,7 +130,7 @@ async fn test_diary_crud() {
         }
     };
     let token = get_auth_token(&app).await;
-    let auth_header = format!("Bearer {}", token);
+    let auth_header = format!("Bearer {token}");
 
     // 1. Create Diary Entry
     let create_payload = CreateDiaryRequest {
@@ -241,7 +241,7 @@ async fn test_viewer_cannot_create_or_update_diary() {
 
     // Register + login → Viewer token
     let token = get_viewer_token(&app).await;
-    let auth_header = format!("Bearer {}", token);
+    let auth_header = format!("Bearer {token}");
 
     let create_payload = CreateDiaryRequest {
         id: None,

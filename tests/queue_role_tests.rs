@@ -20,7 +20,7 @@ async fn test_admin_can_manage_queue() {
     let admin_token =
         backend::auth::security::create_jwt("admin_id", "Admin User", "Admin", "test_secret", 1)
             .unwrap();
-    let auth_header = format!("Bearer {}", admin_token);
+    let auth_header = format!("Bearer {admin_token}");
 
     // 2. Add Route to Queue (POST /routes)
     let payload = serde_json::json!({
@@ -84,7 +84,7 @@ async fn test_admin_can_manage_queue() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&format!("/routes/{}", route_id))
+                .uri(format!("/routes/{route_id}"))
                 .method("DELETE")
                 .header("Authorization", &auth_header)
                 .body(Body::empty())
@@ -130,7 +130,7 @@ async fn test_operator_cannot_manage_queue() {
     let operator_token =
         backend::auth::security::create_jwt("op_id", "Operator User", "Operator", "test_secret", 1)
             .unwrap();
-    let auth_header = format!("Bearer {}", operator_token);
+    let auth_header = format!("Bearer {operator_token}");
 
     // Try to Add Route
     let payload = serde_json::json!({
