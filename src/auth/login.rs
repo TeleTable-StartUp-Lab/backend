@@ -1,9 +1,5 @@
-use axum::{
-    extract::{ConnectInfo, Query, State},
-    http::{HeaderMap, StatusCode},
-    Json,
-};
-use std::{net::SocketAddr, sync::Arc};
+use axum::{extract::{Query, State}, http::{HeaderMap, StatusCode}, Json};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::auth::{
@@ -17,9 +13,9 @@ use crate::auth::{
 };
 use crate::AppState;
 
-/// Extract the real client IP, preferring proxy-forwarded headers over the
-/// raw socket address since we are running behind nginx in prod.
-fn extract_client_ip(addr: &SocketAddr, headers: &HeaderMap) -> String {
+/// Extract the real client IP from proxy-forwarded headers.
+/// Returns "unknown" when no header is present (e.g. in tests or direct connections).
+fn extract_client_ip(headers: &HeaderMap) -> String {
     if let Some(ip) = headers.get("X-Real-IP").and_then(|v| v.to_str().ok()) {
         return ip.to_string();
     }
@@ -31,16 +27,15 @@ fn extract_client_ip(addr: &SocketAddr, headers: &HeaderMap) -> String {
             return first.trim().to_string();
         }
     }
-    addr.ip().to_string()
+    "unknown".to_string()
 }
 
 pub async fn register(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<UserResponse>), (StatusCode, Json<serde_json::Value>)> {
-    let client_ip = extract_client_ip(&addr, &headers);
+    let client_ip = extract_client_ip(&headers);
 
     // Validate required fields before hitting the DB.
     if payload.email.trim().is_empty() || payload.name.trim().is_empty() {
@@ -128,11 +123,10 @@ pub async fn register(
 
 pub async fn login(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, (StatusCode, Json<serde_json::Value>)> {
-    let client_ip = extract_client_ip(&addr, &headers);
+    let client_ip = extract_client_ip(&headers);
 
     let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
         .bind(&payload.email)
