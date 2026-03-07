@@ -26,6 +26,7 @@ async fn get_auth_token(app: &TestApp) -> String {
                         name: "Diary User".into(),
                         email: "diary@example.com".into(),
                         password: "password".into(),
+                        fingerprint_data: None,
                     })
                     .unwrap(),
                 ))
@@ -54,6 +55,7 @@ async fn get_auth_token(app: &TestApp) -> String {
                     serde_json::to_string(&LoginRequest {
                         email: "diary@example.com".into(),
                         password: "password".into(),
+                        fingerprint_data: None,
                     })
                     .unwrap(),
                 ))
@@ -84,6 +86,7 @@ async fn get_viewer_token(app: &TestApp) -> String {
                         name: "Viewer User".into(),
                         email: "viewer@example.com".into(),
                         password: "password".into(),
+                        fingerprint_data: None,
                     })
                     .unwrap(),
                 ))
@@ -105,6 +108,7 @@ async fn get_viewer_token(app: &TestApp) -> String {
                     serde_json::to_string(&LoginRequest {
                         email: "viewer@example.com".into(),
                         password: "password".into(),
+                        fingerprint_data: None,
                     })
                     .unwrap(),
                 ))

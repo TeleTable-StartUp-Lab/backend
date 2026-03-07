@@ -22,6 +22,7 @@ async fn test_register_and_login_flow() {
         name: "Test User".into(),
         email: "test@example.com".into(),
         password: "password123".into(),
+        fingerprint_data: None,
     };
 
     let response = app
@@ -46,6 +47,7 @@ async fn test_register_and_login_flow() {
     let login_payload = LoginRequest {
         email: "test@example.com".into(),
         password: "password123".into(),
+        fingerprint_data: None,
     };
 
     let response = app
@@ -74,6 +76,7 @@ async fn test_register_and_login_flow() {
     let login_payload_bad = LoginRequest {
         email: "test@example.com".into(),
         password: "wrongpassword".into(),
+        fingerprint_data: None,
     };
 
     let response = app

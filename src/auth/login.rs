@@ -1,21 +1,48 @@
-use axum::{extract::{Query, State}, http::{HeaderMap, StatusCode}, Json};
+use axum::{
+    extract::{ConnectInfo, FromRequestParts, Path, Query, State},
+    http::{request::Parts, HeaderMap, StatusCode},
+    Json,
+};
+use std::convert::Infallible;
+use std::future::{ready, Future};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::auth::{
     extractor::AuthenticatedUser,
     models::{
-        DeleteUserRequest, LoginRequest, LoginResponse, RegisterRequest, UpdateUserRequest, User,
-        UserQuery, UserResponse,
+        DeleteUserRequest, LoginRequest, LoginResponse, RegisterRequest, Session,
+        UpdateUserRequest, User, UserQuery, UserResponse,
     },
     roles,
     security::{create_jwt, hash_password, verify_password},
 };
 use crate::AppState;
 
+pub struct MaybeConnectInfo(pub Option<SocketAddr>);
+
+impl<S> FromRequestParts<S> for MaybeConnectInfo
+where
+    S: Send + Sync,
+{
+    type Rejection = Infallible;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        let addr = parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(addr)| *addr);
+        ready(Ok(MaybeConnectInfo(addr)))
+    }
+}
+
 /// Extract the real client IP from proxy-forwarded headers.
-/// Returns "unknown" when no header is present (e.g. in tests or direct connections).
-fn extract_client_ip(headers: &HeaderMap) -> String {
+/// Falls back to the socket address (ConnectInfo), then returns "unknown".
+fn extract_client_ip(headers: &HeaderMap, client_addr: Option<SocketAddr>) -> String {
     if let Some(ip) = headers.get("X-Real-IP").and_then(|v| v.to_str().ok()) {
         return ip.to_string();
     }
@@ -27,15 +54,31 @@ fn extract_client_ip(headers: &HeaderMap) -> String {
             return first.trim().to_string();
         }
     }
+    if let Some(addr) = client_addr {
+        return addr.ip().to_string();
+    }
     "unknown".to_string()
+}
+
+fn extract_user_agent(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("User-Agent")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
 }
 
 pub async fn register(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    MaybeConnectInfo(client_addr): MaybeConnectInfo,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<UserResponse>), (StatusCode, Json<serde_json::Value>)> {
-    let client_ip = extract_client_ip(&headers);
+    let client_ip = extract_client_ip(&headers, client_addr);
+    let user_agent = extract_user_agent(&headers);
+    let fingerprint_data = payload
+        .fingerprint_data
+        .clone()
+        .unwrap_or_else(|| serde_json::json!({}));
 
     // Validate required fields before hitting the DB.
     if payload.email.trim().is_empty() || payload.name.trim().is_empty() {
@@ -86,15 +129,24 @@ pub async fn register(
         )
     })?;
 
+    let mut tx = state.db.begin().await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to begin register transaction");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+        )
+    })?;
+
+    let user_id = Uuid::new_v4();
     let user = sqlx::query_as::<_, User>(
-        "INSERT INTO users (id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+        "INSERT INTO users (id, name, email, password_hash, role, last_sign_on) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *",
     )
-    .bind(Uuid::new_v4())
+    .bind(user_id)
     .bind(&payload.name)
     .bind(&payload.email)
     .bind(&password_hash)
     .bind(roles::VIEWER)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
         tracing::error!(
@@ -106,6 +158,36 @@ pub async fn register(
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("Failed to create user: {}", e)})),
+        )
+    })?;
+
+    sqlx::query(
+        "INSERT INTO sessions (id, user_id, ip_address, fingerprint_data, user_agent, is_current) VALUES ($1, $2, $3, $4, $5, TRUE)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(&client_ip)
+    .bind(&fingerprint_data)
+    .bind(&user_agent)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            error = %e,
+            user_id = %user_id,
+            "Failed to insert initial user session"
+        );
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Failed to create session: {}", e)})),
+        )
+    })?;
+
+    tx.commit().await.map_err(|e| {
+        tracing::error!(error = %e, user_id = %user_id, "Failed to commit register transaction");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Database error: {}", e)})),
         )
     })?;
 
@@ -124,11 +206,17 @@ pub async fn register(
 pub async fn login(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    MaybeConnectInfo(client_addr): MaybeConnectInfo,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, (StatusCode, Json<serde_json::Value>)> {
-    let client_ip = extract_client_ip(&headers);
+    let client_ip = extract_client_ip(&headers, client_addr);
+    let user_agent = extract_user_agent(&headers);
+    let fingerprint_data = payload
+        .fingerprint_data
+        .clone()
+        .unwrap_or_else(|| serde_json::json!({}));
 
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
+    let mut user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
         .bind(&payload.email)
         .fetch_optional(&state.db)
         .await
@@ -180,6 +268,66 @@ pub async fn login(
             Json(serde_json::json!({"error": "Invalid credentials"})),
         ));
     }
+
+    let mut tx = state.db.begin().await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to begin login transaction");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+        )
+    })?;
+
+    sqlx::query("UPDATE users SET last_sign_on = NOW() WHERE id = $1")
+        .bind(user.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, user_id = %user.id, "Failed to update last_sign_on");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+            )
+        })?;
+
+    sqlx::query("UPDATE sessions SET is_current = FALSE WHERE user_id = $1")
+        .bind(user.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, user_id = %user.id, "Failed to clear current sessions");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+            )
+        })?;
+
+    sqlx::query(
+        "INSERT INTO sessions (id, user_id, ip_address, fingerprint_data, user_agent, is_current) VALUES ($1, $2, $3, $4, $5, TRUE)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user.id)
+    .bind(&client_ip)
+    .bind(&fingerprint_data)
+    .bind(&user_agent)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, user_id = %user.id, "Failed to insert login session");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+        )
+    })?;
+
+    tx.commit().await.map_err(|e| {
+        tracing::error!(error = %e, user_id = %user.id, "Failed to commit login transaction");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+        )
+    })?;
+
+    user.last_sign_on = Some(chrono::Utc::now());
 
     let token = create_jwt(
         &user.id.to_string(),
@@ -304,6 +452,77 @@ pub async fn get_user(
         let user_responses: Vec<UserResponse> = users.into_iter().map(|u| u.into()).collect();
         Ok(Json(serde_json::json!(user_responses)))
     }
+}
+
+pub async fn get_users(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<UserResponse>>, (StatusCode, Json<serde_json::Value>)> {
+    let users = sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY created_at DESC")
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                query = "SELECT * FROM users ORDER BY created_at DESC",
+                error = %e,
+                "DB error listing users"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+            )
+        })?;
+
+    Ok(Json(users.into_iter().map(UserResponse::from).collect()))
+}
+
+pub async fn get_user_sessions(
+    State(state): State<Arc<AppState>>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<Vec<Session>>, (StatusCode, Json<serde_json::Value>)> {
+    let user_exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(1) FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                query = "SELECT COUNT(1) FROM users WHERE id = ?",
+                error = %e,
+                user_id = %user_id,
+                "DB error checking user for session history"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+            )
+        })?;
+
+    if user_exists == 0 {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "User not found"})),
+        ));
+    }
+
+    let sessions = sqlx::query_as::<_, Session>(
+        "SELECT id, user_id, ip_address, fingerprint_data, user_agent, created_at, is_current FROM sessions WHERE user_id = $1 ORDER BY created_at DESC",
+    )
+    .bind(user_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            query = "SELECT ... FROM sessions WHERE user_id = ? ORDER BY created_at DESC",
+            error = %e,
+            user_id = %user_id,
+            "DB error fetching session history"
+        );
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+        )
+    })?;
+
+    Ok(Json(sessions))
 }
 
 pub async fn update_user(

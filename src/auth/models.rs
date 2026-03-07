@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -11,6 +12,7 @@ pub struct User {
     pub password_hash: String,
     pub role: String,
     pub created_at: DateTime<Utc>,
+    pub last_sign_on: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -19,6 +21,8 @@ pub struct UserResponse {
     pub name: String,
     pub email: String,
     pub role: String,
+    pub created_at: DateTime<Utc>,
+    pub last_sign_on: Option<DateTime<Utc>>,
 }
 
 impl From<User> for UserResponse {
@@ -28,6 +32,8 @@ impl From<User> for UserResponse {
             name: user.name,
             email: user.email,
             role: user.role,
+            created_at: user.created_at,
+            last_sign_on: user.last_sign_on,
         }
     }
 }
@@ -45,12 +51,16 @@ pub struct RegisterRequest {
     pub name: String,
     pub email: String,
     pub password: String,
+    #[serde(default, rename = "fingerprintData")]
+    pub fingerprint_data: Option<Value>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LoginRequest {
     pub email: String,
     pub password: String,
+    #[serde(default, rename = "fingerprintData")]
+    pub fingerprint_data: Option<Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -75,4 +85,15 @@ pub struct UpdateUserRequest {
 #[derive(Debug, Deserialize)]
 pub struct DeleteUserRequest {
     pub id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct Session {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub ip_address: String,
+    pub fingerprint_data: Value,
+    pub user_agent: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub is_current: bool,
 }

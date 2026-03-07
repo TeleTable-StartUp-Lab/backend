@@ -50,6 +50,15 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 
     // admin routes (authentication + admin role required)
     let admin_routes = Router::new()
+        .route("/users", get(auth::login::get_users))
+        .route(
+            "/users/{id}/sessions",
+            get(auth::login::get_user_sessions),
+        )
+        .route(
+            "/user/{id}/sessions",
+            get(auth::login::get_user_sessions),
+        )
         .route("/user", get(auth::login::get_user))
         .route("/user", post(auth::login::update_user))
         .route("/user", delete(auth::login::delete_user))
