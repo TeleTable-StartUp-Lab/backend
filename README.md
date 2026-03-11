@@ -63,6 +63,7 @@ The backend reads configuration from environment variables:
 Detailed, implementation-accurate API docs are split by module:
 
 - [docs/auth.md](docs/auth.md)
+- [docs/database.md](docs/database.md)
 - [docs/diary.md](docs/diary.md)
 - [docs/robot.md](docs/robot.md)
 
