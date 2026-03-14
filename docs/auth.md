@@ -9,7 +9,10 @@ This document describes the **auth-related HTTP API** implemented in the backend
 | POST   | `/register` | Public               | Create a new user account                                |
 | POST   | `/login`    | Public               | Authenticate and receive a JWT                           |
 | GET    | `/me`       | JWT (Bearer)         | Fetch the authenticated user                             |
+| GET    | `/users`    | JWT (Bearer) + Admin | List users (admin alias for `/user` without query)       |
 | GET    | `/user`     | JWT (Bearer) + Admin | List users or fetch a specific user by `id`              |
+| GET    | `/users/{id}/sessions` | JWT (Bearer) + Admin | Fetch full session history for a user |
+| GET    | `/user/{id}/sessions`  | JWT (Bearer) + Admin | Backward-compatible alias of `/users/{id}/sessions` |
 | POST   | `/user`     | JWT (Bearer) + Admin | Update user fields (`name`, `email`, `role`, `password`) |
 | DELETE | `/user`     | JWT (Bearer) + Admin | Delete a user                                            |
 
@@ -69,6 +72,51 @@ Admin routes require `claims.role == "Admin"` (checked against the database-refr
 - Not authenticated / claims missing → `401` with `{"error":"No authentication information found"}`
 - Authenticated but not admin → `403` with `{"error":"Admin access required"}`
 
+### Client metadata and anti-abuse controls
+
+Auth endpoints capture client context and apply abuse controls:
+
+- **Client IP extraction order:** `X-Real-IP` → first entry in `X-Forwarded-For` → socket address (`ConnectInfo`) → `"unknown"`.
+- **Session history:** both successful register and login write a new `sessions` row with `ip_address`, `fingerprint_data`, and `user_agent`.
+- **Signup IP rate limit:** `POST /register` allows up to **5 attempts per 600 seconds** per IP, then returns `429`.
+- **SwiftShader signal timeout:** if fingerprint renderer metadata contains `SwiftShader`, signup is rejected and the IP is timed out for signup for **86400 seconds**.
+
+#### Fingerprint payload details
+
+`fingerprintData` is intentionally open-ended JSON (`serde_json::Value`) and is stored as-is in `sessions.fingerprint_data`.
+
+- The backend does **not** enforce a strict fingerprint schema.
+- Any nested objects/arrays are accepted.
+- If omitted, the stored value defaults to `{}`.
+
+Typical payloads can include much more than renderer data, for example:
+
+```json
+{
+  "gpu": {
+    "vendor": "Google Inc.",
+    "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)",
+    "webglVersion": "WebGL 1.0"
+  },
+  "screen": { "width": 1920, "height": 1080, "colorDepth": 24 },
+  "timezone": "Europe/Berlin",
+  "language": "en-US",
+  "platform": "Win32",
+  "hardwareConcurrency": 12,
+  "deviceMemory": 8,
+  "touchSupport": false,
+  "canvasHash": "...",
+  "audioHash": "...",
+  "fontsHash": "..."
+}
+```
+
+SwiftShader detection is narrow and explicit:
+
+- The backend recursively scans the fingerprint JSON.
+- It only checks string values under keys whose name contains `renderer` (case-insensitive).
+- If such a value contains `swiftshader` (case-insensitive), signup is blocked and the IP timeout is applied.
+
 ---
 
 ## `POST /register`
@@ -83,9 +131,14 @@ Create a new user account.
 {
   "name": "Jane Doe",
   "email": "jane@example.com",
-  "password": "plaintext password"
+  "password": "plaintext password",
+  "fingerprintData": {
+    "gpu": { "renderer": "ANGLE (SwiftShader Device (Subzero))" }
+  }
 }
 ```
+
+`fingerprintData` is optional and can include any nested JSON fields. On signup, renderer-like fields are scanned for `SwiftShader`; matching requests are rejected and the source IP is temporarily timed out.
 
 ### Responses
 
@@ -96,16 +149,42 @@ Create a new user account.
   "id": "<uuid>",
   "name": "Jane Doe",
   "email": "jane@example.com",
-  "role": "user"
+  "role": "Viewer",
+  "created_at": "2026-03-14T12:34:56Z",
+  "last_sign_on": null
 }
 ```
 
 ### Error cases
 
+- `400 Bad Request` if required fields are missing/blank:
+
+```json
+{ "error": "Email and name are required" }
+```
+
 - `400 Bad Request` if email already exists:
 
 ```json
 { "error": "User with this email already exists" }
+```
+
+- `429 Too Many Requests` if too many registrations come from the same IP in a short window:
+
+```json
+{
+  "error": "Too many account creation attempts from this IP. Please try again later.",
+  "retry_after_seconds": 600
+}
+```
+
+- `429 Too Many Requests` if a SwiftShader renderer bot-signal is detected in `fingerprintData` (IP is temporarily timed out for signup):
+
+```json
+{
+  "error": "Account creation is temporarily blocked for this IP.",
+  "retry_after_seconds": 86400
+}
 ```
 
 - `500 Internal Server Error` on DB errors, or bcrypt hashing errors, with an `error` string.
@@ -123,9 +202,14 @@ Authenticate by email + password and receive a JWT.
 ```json
 {
   "email": "jane@example.com",
-  "password": "plaintext password"
+  "password": "plaintext password",
+  "fingerprintData": {
+    "gpu": { "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX ...)" }
+  }
 }
 ```
+
+`fingerprintData` is optional, accepts arbitrary nested JSON, and is persisted into `sessions.fingerprint_data` on successful login.
 
 ### Responses
 
@@ -164,7 +248,9 @@ Fetch the authenticated user’s current data.
   "id": "<uuid>",
   "name": "Jane Doe",
   "email": "jane@example.com",
-  "role": "user"
+  "role": "Viewer",
+  "created_at": "2026-03-14T12:34:56Z",
+  "last_sign_on": "2026-03-14T13:45:10Z"
 }
 ```
 
@@ -185,7 +271,7 @@ Fetch the authenticated user’s current data.
 All endpoints below require:
 
 - `Authorization: Bearer <jwt>`
-- `role` claim equals `admin`
+- effective role resolves to `Admin` (middleware refreshes role from DB each request)
 
 ### `GET /user`
 
@@ -204,7 +290,9 @@ Fetch users.
   "id": "<uuid>",
   "name": "Jane Doe",
   "email": "jane@example.com",
-  "role": "user"
+  "role": "Viewer",
+  "created_at": "2026-03-14T12:34:56Z",
+  "last_sign_on": "2026-03-14T13:45:10Z"
 }
 ```
 
@@ -237,7 +325,7 @@ Update a user’s `name`, `email`, and/or `role`.
   "id": "<uuid>",
   "name": "New Name",
   "email": "new@example.com",
-  "role": "admin",
+  "role": "Operator",
   "password": "new_password_if_resetting"
 }
 ```
@@ -255,9 +343,37 @@ All of `name`, `email`, `role`, `password` are optional; `id` is required. If `p
   "id": "<uuid>",
   "name": "New Name",
   "email": "new@example.com",
-  "role": "admin"
+  "role": "Operator",
+  "created_at": "2026-03-14T12:34:56Z",
+  "last_sign_on": "2026-03-14T13:45:10Z"
 }
 ```
+
+### `GET /users/{id}/sessions` (admin)
+
+Fetches full session history for a user, newest first.
+
+#### Responses
+
+- `200 OK`:
+
+```json
+[
+  {
+    "id": "<session uuid>",
+    "user_id": "<user uuid>",
+    "ip_address": "203.0.113.7",
+    "fingerprint_data": { "gpu": { "renderer": "ANGLE (...)" } },
+    "user_agent": "Mozilla/5.0 ...",
+    "created_at": "2026-03-14T13:45:10Z"
+  }
+]
+```
+
+#### Error cases
+
+- `404 Not Found` if user doesn’t exist.
+- `500 Internal Server Error` on DB errors.
 
 #### Error cases
 

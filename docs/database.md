@@ -125,7 +125,7 @@ Stores application users and their authentication metadata.
 
 - `email` is unique, so duplicate registrations are rejected at both application and database level.
 - `role` originally defaulted to `'user'`, but a later migration changed the default to `'Viewer'` and migrated existing `'user'` rows.
-- The role domain is enforced by application logic (`Admin`, `Operator`, `Viewer`). A database `CHECK` constraint was considered in a migration comment but is **not currently enabled**.
+- The role domain is enforced both by application logic and by a database `CHECK` constraint: `role IN ('Admin', 'Operator', 'Viewer')`.
 - Last sign-on is derived from `sessions` through the `user_last_sign_on` view.
 
 #### Indexes
@@ -240,3 +240,4 @@ PostgreSQL stores these values as timezone-aware timestamps, often referred to a
 - Lets the backend store variable client/device metadata without creating many nullable columns.
 - Supports JSON querying and indexing later if the project ever needs more advanced reporting.
 - Defaults to an empty JSON object: `'{}'::jsonb`.
+- The auth API accepts `fingerprintData` as arbitrary nested JSON and stores it as-is in this column.
