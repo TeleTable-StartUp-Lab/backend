@@ -12,6 +12,7 @@ pub struct User {
     pub password_hash: String,
     pub role: String,
     pub created_at: DateTime<Utc>,
+    #[sqlx(default)]
     pub last_sign_on: Option<DateTime<Utc>>,
 }
 
@@ -95,5 +96,4 @@ pub struct Session {
     pub fingerprint_data: Value,
     pub user_agent: Option<String>,
     pub created_at: DateTime<Utc>,
-    pub is_current: bool,
 }

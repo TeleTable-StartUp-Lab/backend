@@ -139,7 +139,7 @@ pub async fn register(
 
     let user_id = Uuid::new_v4();
     let user = sqlx::query_as::<_, User>(
-        "INSERT INTO users (id, name, email, password_hash, role, last_sign_on) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *",
+        "INSERT INTO users (id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5) RETURNING *",
     )
     .bind(user_id)
     .bind(&payload.name)
@@ -162,7 +162,7 @@ pub async fn register(
     })?;
 
     sqlx::query(
-        "INSERT INTO sessions (id, user_id, ip_address, fingerprint_data, user_agent, is_current) VALUES ($1, $2, $3, $4, $5, TRUE)",
+        "INSERT INTO sessions (id, user_id, ip_address, fingerprint_data, user_agent) VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(Uuid::new_v4())
     .bind(user_id)
@@ -216,7 +216,7 @@ pub async fn login(
         .clone()
         .unwrap_or_else(|| serde_json::json!({}));
 
-    let mut user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
         .bind(&payload.email)
         .fetch_optional(&state.db)
         .await
@@ -277,32 +277,8 @@ pub async fn login(
         )
     })?;
 
-    sqlx::query("UPDATE users SET last_sign_on = NOW() WHERE id = $1")
-        .bind(user.id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, user_id = %user.id, "Failed to update last_sign_on");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
-            )
-        })?;
-
-    sqlx::query("UPDATE sessions SET is_current = FALSE WHERE user_id = $1")
-        .bind(user.id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, user_id = %user.id, "Failed to clear current sessions");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
-            )
-        })?;
-
     sqlx::query(
-        "INSERT INTO sessions (id, user_id, ip_address, fingerprint_data, user_agent, is_current) VALUES ($1, $2, $3, $4, $5, TRUE)",
+        "INSERT INTO sessions (id, user_id, ip_address, fingerprint_data, user_agent) VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(Uuid::new_v4())
     .bind(user.id)
@@ -326,8 +302,6 @@ pub async fn login(
             Json(serde_json::json!({"error": format!("Database error: {}", e)})),
         )
     })?;
-
-    user.last_sign_on = Some(chrono::Utc::now());
 
     let token = create_jwt(
         &user.id.to_string(),
@@ -378,7 +352,14 @@ pub async fn get_me(
     {
         cached_user
     } else {
-        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        let user = sqlx::query_as::<_, User>(
+            r#"
+            SELECT u.*, ls.last_sign_on
+            FROM users u
+            LEFT JOIN user_last_sign_on ls ON ls.user_id = u.id
+            WHERE u.id = $1
+            "#,
+        )
             .bind(user_id)
             .fetch_one(&state.db)
             .await
@@ -409,7 +390,14 @@ pub async fn get_user(
     Query(query): Query<UserQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     if let Some(id) = query.id {
-        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        let user = sqlx::query_as::<_, User>(
+            r#"
+            SELECT u.*, ls.last_sign_on
+            FROM users u
+            LEFT JOIN user_last_sign_on ls ON ls.user_id = u.id
+            WHERE u.id = $1
+            "#,
+        )
             .bind(id)
             .fetch_optional(&state.db)
             .await
@@ -434,7 +422,13 @@ pub async fn get_user(
 
         Ok(Json(serde_json::json!(UserResponse::from(user))))
     } else {
-        let users = sqlx::query_as::<_, User>("SELECT * FROM users")
+        let users = sqlx::query_as::<_, User>(
+            r#"
+            SELECT u.*, ls.last_sign_on
+            FROM users u
+            LEFT JOIN user_last_sign_on ls ON ls.user_id = u.id
+            "#,
+        )
             .fetch_all(&state.db)
             .await
             .map_err(|e| {
@@ -457,7 +451,14 @@ pub async fn get_user(
 pub async fn get_users(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<UserResponse>>, (StatusCode, Json<serde_json::Value>)> {
-    let users = sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY created_at DESC")
+    let users = sqlx::query_as::<_, User>(
+        r#"
+        SELECT u.*, ls.last_sign_on
+        FROM users u
+        LEFT JOIN user_last_sign_on ls ON ls.user_id = u.id
+        ORDER BY u.created_at DESC
+        "#,
+    )
         .fetch_all(&state.db)
         .await
         .map_err(|e| {
@@ -504,7 +505,7 @@ pub async fn get_user_sessions(
     }
 
     let sessions = sqlx::query_as::<_, Session>(
-        "SELECT id, user_id, ip_address, fingerprint_data, user_agent, created_at, is_current FROM sessions WHERE user_id = $1 ORDER BY created_at DESC",
+        "SELECT id, user_id, ip_address, fingerprint_data, user_agent, created_at FROM sessions WHERE user_id = $1 ORDER BY created_at DESC",
     )
     .bind(user_id)
     .fetch_all(&state.db)

@@ -61,9 +61,14 @@ The test helper uses a smaller pool size of **5** connections and also runs migr
 
 The relational schema currently has three core tables:
 
-- `users` stores account identity, credentials, role, and sign-on timestamps.
+- `users` stores account identity, credentials, and role.
 - `diary_entries` stores work-log entries owned by a user.
 - `sessions` stores login session history and client metadata for a user.
+
+There are also two convenience views:
+
+- `user_last_sign_on` derives each user's last sign-on time from `sessions`.
+- `current_sessions` derives the newest session per user from `sessions`.
 
 ## ER model
 
@@ -79,7 +84,6 @@ erDiagram
         VARCHAR password_hash
         VARCHAR role
         TIMESTAMPTZ created_at
-        TIMESTAMPTZ last_sign_on
     }
 
     DIARY_ENTRIES {
@@ -98,7 +102,6 @@ erDiagram
         JSONB fingerprint_data
         TEXT user_agent
         TIMESTAMPTZ created_at
-        BOOLEAN is_current
     }
 ```
 
@@ -111,20 +114,19 @@ Stores application users and their authentication metadata.
 
 | Column | Type | Null | Default | Purpose |
 | ------ | ---- | ---- | ------- | ------- |
-| `id` | `UUID` | No | None | Primary key for the user |
+| `id` | `UUID` | No | `gen_random_uuid()` | Primary key for the user |
 | `name` | `VARCHAR(255)` | No | None | Display name |
 | `email` | `VARCHAR(255)` | No | None | Unique login identifier |
 | `password_hash` | `VARCHAR(255)` | No | None | Bcrypt-hashed password |
 | `role` | `VARCHAR(50)` | No | `'Viewer'` | Authorization role |
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | Yes at insert time | `NOW()` | Account creation timestamp |
-| `last_sign_on` | `TIMESTAMP WITH TIME ZONE` | Yes | None | Most recent successful sign-in time |
 
 #### Behavior notes
 
 - `email` is unique, so duplicate registrations are rejected at both application and database level.
 - `role` originally defaulted to `'user'`, but a later migration changed the default to `'Viewer'` and migrated existing `'user'` rows.
 - The role domain is enforced by application logic (`Admin`, `Operator`, `Viewer`). A database `CHECK` constraint was considered in a migration comment but is **not currently enabled**.
-- `last_sign_on` is set during registration and updated again on successful login.
+- Last sign-on is derived from `sessions` through the `user_last_sign_on` view.
 
 #### Indexes
 
@@ -138,7 +140,7 @@ Stores time-tracked diary/work-log entries.
 
 | Column | Type | Null | Default | Purpose |
 | ------ | ---- | ---- | ------- | ------- |
-| `id` | `UUID` | No | None | Primary key for the entry |
+| `id` | `UUID` | No | `gen_random_uuid()` | Primary key for the entry |
 | `owner` | `UUID` | No | None | References `users.id` |
 | `working_minutes` | `INTEGER` | No | None | Minutes worked for the entry |
 | `text` | `TEXT` | No | None | Free-form diary content |
@@ -150,6 +152,8 @@ Stores time-tracked diary/work-log entries.
 - `owner` is a foreign key to `users(id)`.
 - The relation uses `ON DELETE CASCADE`, so deleting a user automatically deletes all of that user's diary entries.
 - The backend uses ownership checks in queries, so users can only update or delete their own entries.
+- `updated_at` is set by a PostgreSQL trigger on every `UPDATE`, so it cannot silently drift.
+- `text` has a database-level `CHECK` constraint: maximum 5000 characters.
 
 #### Indexes
 
@@ -164,29 +168,49 @@ Stores login session history and device/client metadata.
 
 | Column | Type | Null | Default | Purpose |
 | ------ | ---- | ---- | ------- | ------- |
-| `id` | `UUID` | No | None | Primary key for the session row |
+| `id` | `UUID` | No | `gen_random_uuid()` | Primary key for the session row |
 | `user_id` | `UUID` | No | None | References `users.id` |
 | `ip_address` | `TEXT` | No | None | Captured client IP |
 | `fingerprint_data` | `JSONB` | No | `'{}'::jsonb` | Structured client/device fingerprint payload |
 | `user_agent` | `TEXT` | Yes | None | Raw HTTP user agent string |
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | No | `NOW()` | Session creation timestamp |
-| `is_current` | `BOOLEAN` | No | `TRUE` | Whether the row represents the user's current session |
 
 #### Behavior notes
 
 - `user_id` is a foreign key to `users(id)`.
 - The relation uses `ON DELETE CASCADE`, so deleting a user also deletes that user's session history.
-- On login, the backend marks previous sessions for the user as `is_current = FALSE` and inserts a new current session row.
-- On registration, the backend inserts an initial session row immediately.
+- On login and registration, the backend inserts a new session row.
+- The "current" session is derived by the `current_sessions` view (`DISTINCT ON (user_id)` ordered by `created_at DESC`).
 
 #### Indexes
 
 - `idx_sessions_user_id` on `user_id`
 - `idx_sessions_created_at` on `created_at DESC`
 - `idx_sessions_user_id_created_at` on `(user_id, created_at DESC)`
-- `idx_sessions_current` on `(user_id, is_current)`
 
-These support user session history queries, recent-session ordering, and fast lookup of the current session state.
+These support user session history queries and recent-session ordering.
+
+## Views
+
+### `user_last_sign_on`
+
+```sql
+SELECT user_id, MAX(created_at) AS last_sign_on
+FROM sessions
+GROUP BY user_id;
+```
+
+Provides a per-user derived sign-on timestamp without duplicating data in `users`.
+
+### `current_sessions`
+
+```sql
+SELECT DISTINCT ON (user_id) *
+FROM sessions
+ORDER BY user_id, created_at DESC;
+```
+
+Provides one latest session row per user.
 
 
 ## Special data types
@@ -197,14 +221,13 @@ These support user session history queries, recent-session ordering, and fast lo
 
 - It gives globally unique identifiers without relying on sequential integers.
 - It is a good fit for distributed systems and API-facing identifiers.
-- In this backend, IDs are typically generated in Rust with `Uuid::new_v4()`.
-- One migration also uses PostgreSQL-side `gen_random_uuid()` when seeding the admin user.
+- In this backend, IDs can be generated in Rust with `Uuid::new_v4()` **or** by PostgreSQL defaults (`gen_random_uuid()`) on core table primary keys.
 
 ### `TIMESTAMP WITH TIME ZONE`
 
 PostgreSQL stores these values as timezone-aware timestamps, often referred to as `timestamptz`.
 
-- Used for `created_at`, `updated_at`, and `last_sign_on`.
+- Used for `created_at` and `updated_at` (and derived `last_sign_on` in `user_last_sign_on`).
 - `NOW()` sets the value at insert/update time in the database.
 - In Rust, these fields map to `chrono::DateTime<Utc>`.
 - This avoids ambiguity compared with local-time timestamps.

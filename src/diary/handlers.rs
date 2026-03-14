@@ -20,6 +20,15 @@ pub async fn create_or_update_diary(
     AuthenticatedUser(claims): AuthenticatedUser,
     Json(payload): Json<CreateDiaryRequest>,
 ) -> Result<(StatusCode, Json<DiaryResponse>), (StatusCode, Json<serde_json::Value>)> {
+    if payload.text.chars().count() > 5000 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Diary text must be at most 5000 characters"
+            })),
+        ));
+    }
+
     let user_id = Uuid::parse_str(&claims.sub).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,

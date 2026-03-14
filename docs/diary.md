@@ -113,6 +113,8 @@ Create a new diary entry **or** update an existing one owned by the authenticate
 
 - If `id` is omitted or `null`, a new entry is created.
 - If `id` is provided, the backend updates that entry **only if it belongs to the authenticated user**.
+- `text` must be at most **5000 characters**.
+- `updated_at` is automatically maintained by a DB trigger on updates.
 
 #### Responses
 
@@ -122,6 +124,7 @@ Create a new diary entry **or** update an existing one owned by the authenticate
 #### Error cases
 
 - `400 Bad Request` if the JWT `sub` is not a UUID: `{"error":"Invalid user ID"}`
+- `400 Bad Request` if `text` is longer than 5000 characters: `{"error":"Diary text must be at most 5000 characters"}`
 - `404 Not Found` when updating with an `id` that doesn’t exist for that user: `{"error":"Diary entry not found"}`
 - `500 Internal Server Error` on DB errors (returns `{ "error": "<db error string>" }`)
 
