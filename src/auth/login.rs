@@ -3,6 +3,7 @@ use axum::{
     http::{request::Parts, HeaderMap, StatusCode},
     Json,
 };
+use redis::AsyncCommands;
 use std::convert::Infallible;
 use std::future::{ready, Future};
 use std::net::SocketAddr;
@@ -19,6 +20,10 @@ use crate::auth::{
     security::{create_jwt, hash_password, verify_password},
 };
 use crate::AppState;
+
+const REGISTER_RATE_LIMIT_MAX_ATTEMPTS: u64 = 5;
+const REGISTER_RATE_LIMIT_WINDOW_SECONDS: u64 = 600;
+const REGISTER_SWIFTSHADER_TIMEOUT_SECONDS: u64 = 86_400;
 
 pub struct MaybeConnectInfo(pub Option<SocketAddr>);
 
@@ -67,6 +72,128 @@ fn extract_user_agent(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+fn contains_swiftshader_renderer(value: &serde_json::Value) -> bool {
+    fn scan(value: &serde_json::Value, renderer_context: bool) -> bool {
+        match value {
+            serde_json::Value::Object(map) => map.iter().any(|(k, v)| {
+                let is_renderer_key = k.to_ascii_lowercase().contains("renderer");
+                scan(v, renderer_context || is_renderer_key)
+            }),
+            serde_json::Value::Array(items) => {
+                items.iter().any(|item| scan(item, renderer_context))
+            }
+            serde_json::Value::String(s) => {
+                renderer_context && s.to_ascii_lowercase().contains("swiftshader")
+            }
+            _ => false,
+        }
+    }
+
+    scan(value, false)
+}
+
+async fn enforce_registration_rate_limit(
+    state: &AppState,
+    client_ip: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if client_ip == "unknown" {
+        tracing::warn!("Skipping register rate limit because client IP is unknown");
+        return Ok(());
+    }
+
+    let key = format!("ratelimit:register:ip:{client_ip}");
+    let blocked_key = format!("ratelimit:register:blocked:ip:{client_ip}");
+    let mut redis = state.redis.clone();
+
+    match redis.exists::<_, bool>(&blocked_key).await {
+        Ok(true) => {
+            let ttl_seconds = redis.ttl(&blocked_key).await.unwrap_or(-1);
+            tracing::warn!(
+                ip = %client_ip,
+                ttl_seconds,
+                "Blocked signup attempt from timed-out IP"
+            );
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(serde_json::json!({
+                    "error": "Account creation is temporarily blocked for this IP.",
+                    "retry_after_seconds": if ttl_seconds > 0 { ttl_seconds } else { REGISTER_RATE_LIMIT_WINDOW_SECONDS as i64 }
+                })),
+            ));
+        }
+        Ok(false) => {}
+        Err(e) => {
+            tracing::error!(error = %e, ip = %client_ip, "Failed to check signup IP timeout state");
+            // Fail open to avoid signup outage if Redis is temporarily unavailable.
+            return Ok(());
+        }
+    }
+
+    let attempt_count: u64 = match redis.incr(&key, 1_u64).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(error = %e, ip = %client_ip, "Failed to apply register rate limit");
+            // Fail open to avoid signup outage if Redis is temporarily unavailable.
+            return Ok(());
+        }
+    };
+
+    if attempt_count == 1 {
+        let _: Result<bool, redis::RedisError> =
+            redis.expire(&key, REGISTER_RATE_LIMIT_WINDOW_SECONDS as i64).await;
+    }
+
+    if attempt_count > REGISTER_RATE_LIMIT_MAX_ATTEMPTS {
+        tracing::warn!(
+            ip = %client_ip,
+            attempt_count,
+            max_attempts = REGISTER_RATE_LIMIT_MAX_ATTEMPTS,
+            "Register rate limit exceeded"
+        );
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({
+                "error": "Too many account creation attempts from this IP. Please try again later.",
+                "retry_after_seconds": REGISTER_RATE_LIMIT_WINDOW_SECONDS
+            })),
+        ));
+    }
+
+    Ok(())
+}
+
+async fn timeout_registration_ip(
+    state: &AppState,
+    client_ip: &str,
+    timeout_seconds: u64,
+    reason: &str,
+) {
+    if client_ip == "unknown" {
+        tracing::warn!(reason = %reason, "Cannot timeout unknown IP");
+        return;
+    }
+
+    let blocked_key = format!("ratelimit:register:blocked:ip:{client_ip}");
+    let attempts_key = format!("ratelimit:register:ip:{client_ip}");
+    let mut redis = state.redis.clone();
+
+    if let Err(e) = redis
+        .set_ex::<_, _, ()>(&blocked_key, reason, timeout_seconds)
+        .await
+    {
+        tracing::error!(
+            error = %e,
+            ip = %client_ip,
+            timeout_seconds,
+            reason = %reason,
+            "Failed to set signup IP timeout"
+        );
+        return;
+    }
+
+    let _: Result<u64, redis::RedisError> = redis.del(attempts_key).await;
+}
+
 pub async fn register(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -79,6 +206,32 @@ pub async fn register(
         .fingerprint_data
         .clone()
         .unwrap_or_else(|| serde_json::json!({}));
+
+    enforce_registration_rate_limit(&state, &client_ip).await?;
+
+    if contains_swiftshader_renderer(&fingerprint_data) {
+        timeout_registration_ip(
+            &state,
+            &client_ip,
+            REGISTER_SWIFTSHADER_TIMEOUT_SECONDS,
+            "swiftshader_renderer",
+        )
+        .await;
+
+        tracing::warn!(
+            ip = %client_ip,
+            timeout_seconds = REGISTER_SWIFTSHADER_TIMEOUT_SECONDS,
+            "Blocked signup due to SwiftShader fingerprint signal"
+        );
+
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({
+                "error": "Account creation is temporarily blocked for this IP.",
+                "retry_after_seconds": REGISTER_SWIFTSHADER_TIMEOUT_SECONDS
+            })),
+        ));
+    }
 
     // Validate required fields before hitting the DB.
     if payload.email.trim().is_empty() || payload.name.trim().is_empty() {
