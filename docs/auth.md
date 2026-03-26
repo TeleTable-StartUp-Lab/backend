@@ -39,7 +39,7 @@ The backend uses three roles: **Admin**, **Operator**, and **Viewer**. Expected 
 | Select robot routes (`POST /routes/select`)                                        | Yes                       | Yes             | No              |
 | Acquire/release manual drive lock (`POST/DELETE /drive/lock`)                      | Yes                       | Yes             | No              |
 | Manage route queue (`POST /routes`, `DELETE /routes/:id`, `POST /routes/optimize`) | Yes                       | No              | No              |
-| Read robot nodes/status (`GET /nodes`, `GET /status`)                              | Yes                       | Yes             | Yes             |
+| Read robot nodes/live status (`GET /nodes`, `GET /robot/notifications`, `GET /ws/robot/events?token=<jwt>`) | Yes | Yes | Yes |
 
 ### JWT claims
 

@@ -1,8 +1,9 @@
 use crate::auth::models::Claims;
 use crate::auth::roles;
 use crate::auth::security::decode_jwt;
+use crate::notifications::models::RobotNotification;
 use crate::robot::models::{
-    LastRoute, NodesResponse, QueuedRoute, RobotCommand, RouteSelectionRequest, StatusResponse,
+    NodesResponse, QueuedRoute, RobotCommand, RobotStatusUpdate, RouteSelectionRequest,
 };
 use crate::AppState;
 use axum::{
@@ -15,63 +16,12 @@ use axum::{
     Extension, Json,
 };
 
+use chrono::Utc;
 use futures::stream::StreamExt;
 use serde::Deserialize;
+use serde::Serialize;
 use std::sync::Arc;
 use uuid::Uuid;
-use chrono::Utc;
-
-pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let robot_state = state.robot_state.current_state.read().await;
-    let lock_state = state.robot_state.manual_lock.read().await;
-    let robot_connected = state.robot_state.is_robot_connected().await;
-
-    let (system_health, battery_level, drive_mode, cargo_status, position, last_route) =
-        if let Some(rs) = &*robot_state {
-            (
-                rs.system_health.clone(),
-                rs.battery_level,
-                rs.drive_mode.clone(),
-                rs.cargo_status.clone(),
-                rs.current_position.clone(),
-                if let (Some(start), Some(end)) = (&rs.last_node, &rs.target_node) {
-                    Some(LastRoute {
-                        start_node: start.clone(),
-                        end_node: end.clone(),
-                    })
-                } else {
-                    None
-                },
-            )
-        } else {
-            (
-                "UNKNOWN".to_string(),
-                0,
-                "UNKNOWN".to_string(),
-                "UNKNOWN".to_string(),
-                "UNKNOWN".to_string(),
-                None,
-            )
-        };
-
-    // Only report lock holder if the lock has not expired
-    let manual_lock_holder_name = lock_state
-        .as_ref()
-        .filter(|l| l.expires_at > chrono::Utc::now())
-        .map(|l| l.holder_name.clone());
-
-    let status = StatusResponse {
-        system_health,
-        battery_level,
-        drive_mode,
-        cargo_status,
-        last_route,
-        position,
-        manual_lock_holder_name,
-        robot_connected,
-    };
-    Json(status)
-}
 
 pub async fn robot_control_ws(
     ws: WebSocketUpgrade,
@@ -113,11 +63,92 @@ pub async fn manual_control_ws(
     ws.on_upgrade(move |socket| handle_manual_socket(socket, state, claims))
 }
 
+pub async fn robot_events_ws(
+    ws: WebSocketUpgrade,
+    Query(params): Query<WsParams>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let claims = match decode_jwt(&params.token, &state.config.jwt_secret) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = %e, "WebSocket robot events - invalid token (401)");
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+    };
+
+    if !roles::can_view(&claims.role) {
+        tracing::warn!(
+            user_id = %claims.sub,
+            role    = %claims.role,
+            "WebSocket robot events - insufficient permissions (403)"
+        );
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    ws.on_upgrade(move |socket| handle_events_socket(socket, state))
+}
+
+async fn handle_events_socket(mut socket: WebSocket, state: Arc<AppState>) {
+    let mut status_rx = state.robot_state.status_sender.subscribe();
+    let mut notification_rx = state.robot_state.notification_sender.subscribe();
+
+    let initial_status = crate::robot::build_status_update(&state).await;
+    let initial_status_event = WsStatusUpdateEvent {
+        event: "status_update",
+        data: initial_status,
+    };
+    if let Ok(msg) = serde_json::to_string(&initial_status_event) {
+        if socket.send(Message::Text(msg.into())).await.is_err() {
+            return;
+        }
+    }
+
+    loop {
+        tokio::select! {
+            notification = notification_rx.recv() => {
+                match notification {
+                    Ok(notification) => {
+                        let envelope = WsNotificationEvent {
+                            event: "robot_notification",
+                            data: notification,
+                        };
+
+                        if let Ok(msg) = serde_json::to_string(&envelope) {
+                            if socket.send(Message::Text(msg.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            status_update = status_rx.recv() => {
+                match status_update {
+                    Ok(status_update) => {
+                        let envelope = WsStatusUpdateEvent {
+                            event: "status_update",
+                            data: status_update,
+                        };
+
+                        if let Ok(msg) = serde_json::to_string(&envelope) {
+                            if socket.send(Message::Text(msg.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        }
+    }
+}
+
 async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claims: Claims) {
     let role = claims.role.as_str();
     let is_admin = roles::is_admin(role);
     let is_operator = roles::is_operator(role);
-
     while let Some(Ok(msg)) = socket.next().await {
         if let Message::Text(text) = msg {
             let cmd: RobotCommand = match serde_json::from_str(&text) {
@@ -127,7 +158,7 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
 
             // 1. Role Permission Check - Basic Level
             if !roles::can_operate(role) {
-                // Viewers cannot send commands
+                // Viewers cannot send commands.
                 continue;
             }
 
@@ -201,8 +232,7 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                 // Operator must hold a non-expired lock to send commands
                 let lock = state.robot_state.manual_lock.read().await;
                 let is_valid_holder = if let Some(l) = &*lock {
-                    l.holder_id.to_string() == claims.sub
-                        && l.expires_at > chrono::Utc::now()
+                    l.holder_id.to_string() == claims.sub && l.expires_at > chrono::Utc::now()
                 } else {
                     false
                 };
@@ -215,15 +245,23 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
     }
 }
 
+#[derive(Serialize)]
+struct WsNotificationEvent {
+    event: &'static str,
+    data: RobotNotification,
+}
+
+#[derive(Serialize)]
+struct WsStatusUpdateEvent {
+    event: &'static str,
+    data: RobotStatusUpdate,
+}
+
 pub async fn get_nodes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     // Check Redis cache first
     let mut redis = state.redis.clone();
     if let Ok(Some(nodes)) = crate::cache::CacheService::get_nodes(&mut redis).await {
-        return (
-            StatusCode::OK,
-            Json(NodesResponse { nodes }),
-        )
-            .into_response();
+        return (StatusCode::OK, Json(NodesResponse { nodes })).into_response();
     }
 
     // Check in-memory cache
@@ -250,7 +288,9 @@ pub async fn get_nodes(State(state): State<Arc<AppState>>) -> impl IntoResponse 
                         // Cache it in both places
                         let mut cache = state.robot_state.cached_nodes.write().await;
                         *cache = Some(nodes_resp.nodes.clone());
-                        let _ = crate::cache::CacheService::cache_nodes(&mut redis, &nodes_resp.nodes).await;
+                        let _ =
+                            crate::cache::CacheService::cache_nodes(&mut redis, &nodes_resp.nodes)
+                                .await;
 
                         return (StatusCode::OK, Json(nodes_resp)).into_response();
                     }
@@ -372,11 +412,7 @@ pub async fn acquire_lock(
                 .into_response();
             }
 
-            tracing::info!(
-                "Admin {} revoked lock from {}",
-                claims.name,
-                l.holder_name
-            );
+            tracing::info!("Admin {} revoked lock from {}", claims.name, l.holder_name);
         }
     }
 
@@ -400,11 +436,16 @@ pub async fn acquire_lock(
             "Manual drive lock acquired"
         );
 
-        Json(serde_json::json!({
+        let response = Json(serde_json::json!({
             "status": "success",
             "message": message
         }))
-        .into_response()
+        .into_response();
+
+        drop(lock);
+        crate::robot::broadcast_status_update(&state).await;
+
+        response
     } else {
         Json(serde_json::json!({
             "status": "error",
@@ -439,11 +480,16 @@ pub async fn release_lock(
                 "Manual drive lock released"
             );
             *lock = None;
-            return Json(serde_json::json!({
+            let response = Json(serde_json::json!({
                 "status": "success",
                 "message": "Lock released"
             }))
             .into_response();
+
+            drop(lock);
+            crate::robot::broadcast_status_update(&state).await;
+
+            return response;
         }
     }
 

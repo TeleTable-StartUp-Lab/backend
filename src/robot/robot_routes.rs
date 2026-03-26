@@ -1,3 +1,4 @@
+use crate::notifications::models::RobotNotification;
 use crate::robot::models::{RobotEvent, RobotState};
 use crate::AppState;
 use axum::{
@@ -9,6 +10,7 @@ use axum::{
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use uuid::Uuid;
 
 pub async fn update_robot_state(
     State(state): State<Arc<AppState>>,
@@ -51,6 +53,7 @@ pub async fn update_robot_state(
 
     // Trigger processing (checks IDLE, Lock, Queue)
     crate::robot::process_queue(&state).await;
+    crate::robot::broadcast_status_update(&state).await;
 
     Json(serde_json::json!({
         "status": "success"
@@ -77,11 +80,59 @@ pub async fn handle_robot_event(
             .into_response();
     }
 
-    tracing::info!(event = ?payload, "Received robot event");
-    // TODO: Handle specific events (e.g. notify users)
+    let message = payload.message.trim();
+    if message.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "status": "error",
+                "message": "Message must not be empty"
+            })),
+        )
+            .into_response();
+    }
+
+    let notification = match sqlx::query_as::<_, RobotNotification>(
+        r#"
+        INSERT INTO robot_notifications (id, priority, message)
+        VALUES ($1, $2, $3)
+        RETURNING id, priority, message, received_at
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(payload.priority.as_str())
+    .bind(message)
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(notification) => notification,
+        Err(e) => {
+            tracing::error!(error = %e, "DB error persisting robot notification");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "status": "error",
+                    "message": "Failed to persist robot event"
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let _ = state
+        .robot_state
+        .notification_sender
+        .send(notification.clone());
+
+    tracing::info!(
+        priority = %notification.priority,
+        message  = %notification.message,
+        "Received and broadcast robot event"
+    );
 
     Json(serde_json::json!({
-        "status": "success"
+        "status": "success",
+        "notification": notification
     }))
     .into_response()
 }
@@ -120,6 +171,8 @@ pub async fn register_robot(
         tracing::info!("Registered robot at {}", url);
         *url_lock = Some(url);
     }
+
+    crate::robot::broadcast_status_update(&state).await;
 
     StatusCode::OK
 }

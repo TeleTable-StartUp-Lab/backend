@@ -82,7 +82,7 @@ pub async fn auth_middleware(
     #[allow(unused_mut)] mut req: Request,
     next: Next,
 ) -> Result<Response, impl IntoResponse> {
-    let path   = req.uri().path().to_string();
+    let path = req.uri().path().to_string();
     let method = req.method().to_string();
 
     let auth_header = req.headers().get(header::AUTHORIZATION);
@@ -194,7 +194,7 @@ pub async fn auth_middleware(
 }
 
 pub async fn admin_middleware(req: Request, next: Next) -> Result<Response, impl IntoResponse> {
-    let path   = req.uri().path().to_string();
+    let path = req.uri().path().to_string();
     let method = req.method().to_string();
 
     let (user_id, name, role) = {

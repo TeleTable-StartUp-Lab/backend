@@ -24,10 +24,27 @@ pub struct RobotState {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct RobotEvent {
-    pub event: String,
-    pub timestamp: DateTime<Utc>,
+    pub priority: RobotEventPriority,
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum RobotEventPriority {
+    Info,
+    Warn,
+    Error,
+}
+
+impl RobotEventPriority {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RobotEventPriority::Info => "INFO",
+            RobotEventPriority::Warn => "WARN",
+            RobotEventPriority::Error => "ERROR",
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -56,10 +73,24 @@ pub enum RobotCommand {
     AudioVolume { value: f32 },
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LastRoute {
     pub start_node: String,
     pub end_node: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotStatusUpdate {
+    pub system_health: String,
+    pub battery_level: u8,
+    pub drive_mode: String,
+    pub cargo_status: String,
+    pub position: String,
+    pub last_route: Option<LastRoute>,
+    pub manual_lock_holder_name: Option<String>,
+    pub robot_connected: bool,
+    pub nodes: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]

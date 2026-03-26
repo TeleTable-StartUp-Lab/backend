@@ -6,8 +6,96 @@ pub mod robot_routes;
 pub mod state;
 
 use crate::AppState;
-use models::RobotCommand;
+use models::{LastRoute, RobotCommand, RobotStatusUpdate};
 use std::sync::Arc;
+
+pub async fn build_status_update(state: &Arc<AppState>) -> RobotStatusUpdate {
+    let robot_state = state.robot_state.current_state.read().await;
+    let lock_state = state.robot_state.manual_lock.read().await;
+    let robot_connected = state.robot_state.is_robot_connected().await;
+
+    let (system_health, battery_level, drive_mode, cargo_status, position, last_route) =
+        if let Some(rs) = &*robot_state {
+            (
+                rs.system_health.clone(),
+                rs.battery_level,
+                rs.drive_mode.clone(),
+                rs.cargo_status.clone(),
+                rs.current_position.clone(),
+                if let (Some(start), Some(end)) = (&rs.last_node, &rs.target_node) {
+                    Some(LastRoute {
+                        start_node: start.clone(),
+                        end_node: end.clone(),
+                    })
+                } else {
+                    None
+                },
+            )
+        } else {
+            (
+                "UNKNOWN".to_string(),
+                0,
+                "UNKNOWN".to_string(),
+                "UNKNOWN".to_string(),
+                "UNKNOWN".to_string(),
+                None,
+            )
+        };
+
+    let manual_lock_holder_name = lock_state
+        .as_ref()
+        .filter(|l| l.expires_at > chrono::Utc::now())
+        .map(|l| l.holder_name.clone());
+
+    let nodes = get_or_refresh_nodes(state).await;
+
+    RobotStatusUpdate {
+        system_health,
+        battery_level,
+        drive_mode,
+        cargo_status,
+        position,
+        last_route,
+        manual_lock_holder_name,
+        robot_connected,
+        nodes,
+    }
+}
+
+pub async fn broadcast_status_update(state: &Arc<AppState>) {
+    let status_update = build_status_update(state).await;
+    let _ = state.robot_state.status_sender.send(status_update);
+}
+
+async fn get_or_refresh_nodes(state: &Arc<AppState>) -> Vec<String> {
+    if let Some(nodes) = &*state.robot_state.cached_nodes.read().await {
+        return nodes.clone();
+    }
+
+    let mut redis = state.redis.clone();
+    if let Ok(Some(nodes)) = crate::cache::CacheService::get_nodes(&mut redis).await {
+        let mut cache = state.robot_state.cached_nodes.write().await;
+        *cache = Some(nodes.clone());
+        return nodes;
+    }
+
+    let robot_url = state.robot_state.robot_url.read().await.clone();
+    if let Some(url) = robot_url {
+        if let Ok(resp) = state.http_client.get(format!("{url}/nodes")).send().await {
+            if resp.status().is_success() {
+                if let Ok(nodes_resp) = resp.json::<models::NodesResponse>().await {
+                    let nodes = nodes_resp.nodes;
+                    let _ = crate::cache::CacheService::cache_nodes(&mut redis, &nodes).await;
+                    let mut cache = state.robot_state.cached_nodes.write().await;
+                    *cache = Some(nodes.clone());
+                    return nodes;
+                }
+            }
+        }
+    }
+
+    Vec::new()
+}
 
 pub async fn process_queue(state: &Arc<AppState>) {
     // 1. Check Manual Lock (only if not expired)

@@ -51,10 +51,7 @@ fn extract_client_ip(headers: &HeaderMap, client_addr: Option<SocketAddr>) -> St
     if let Some(ip) = headers.get("X-Real-IP").and_then(|v| v.to_str().ok()) {
         return ip.to_string();
     }
-    if let Some(fwd) = headers
-        .get("X-Forwarded-For")
-        .and_then(|v| v.to_str().ok())
-    {
+    if let Some(fwd) = headers.get("X-Forwarded-For").and_then(|v| v.to_str().ok()) {
         if let Some(first) = fwd.split(',').next() {
             return first.trim().to_string();
         }
@@ -139,8 +136,9 @@ async fn enforce_registration_rate_limit(
     };
 
     if attempt_count == 1 {
-        let _: Result<bool, redis::RedisError> =
-            redis.expire(&key, REGISTER_RATE_LIMIT_WINDOW_SECONDS as i64).await;
+        let _: Result<bool, redis::RedisError> = redis
+            .expire(&key, REGISTER_RATE_LIMIT_WINDOW_SECONDS as i64)
+            .await;
     }
 
     if attempt_count > REGISTER_RATE_LIMIT_MAX_ATTEMPTS {
@@ -513,21 +511,21 @@ pub async fn get_me(
             WHERE u.id = $1
             "#,
         )
-            .bind(user_id)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    query   = "SELECT * FROM users WHERE id = ?",
-                    error   = %e,
-                    user_id = %user_id,
-                    "DB error in get_me"
-                );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": format!("Database error: {}", e)})),
-                )
-            })?;
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                query   = "SELECT * FROM users WHERE id = ?",
+                error   = %e,
+                user_id = %user_id,
+                "DB error in get_me"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+            )
+        })?;
 
         // Cache for next time.
         let _ =
@@ -551,27 +549,27 @@ pub async fn get_user(
             WHERE u.id = $1
             "#,
         )
-            .bind(id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    query   = "SELECT * FROM users WHERE id = ?",
-                    error   = %e,
-                    user_id = %id,
-                    "DB error in get_user"
-                );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": format!("Database error: {}", e)})),
-                )
-            })?
-            .ok_or_else(|| {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(serde_json::json!({"error": "User not found"})),
-                )
-            })?;
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                query   = "SELECT * FROM users WHERE id = ?",
+                error   = %e,
+                user_id = %id,
+                "DB error in get_user"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "User not found"})),
+            )
+        })?;
 
         Ok(Json(serde_json::json!(UserResponse::from(user))))
     } else {
@@ -582,19 +580,19 @@ pub async fn get_user(
             LEFT JOIN user_last_sign_on ls ON ls.user_id = u.id
             "#,
         )
-            .fetch_all(&state.db)
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    query = "SELECT * FROM users",
-                    error = %e,
-                    "DB error listing all users"
-                );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": format!("Database error: {}", e)})),
-                )
-            })?;
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                query = "SELECT * FROM users",
+                error = %e,
+                "DB error listing all users"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+            )
+        })?;
 
         let user_responses: Vec<UserResponse> = users.into_iter().map(|u| u.into()).collect();
         Ok(Json(serde_json::json!(user_responses)))
@@ -612,19 +610,19 @@ pub async fn get_users(
         ORDER BY u.created_at DESC
         "#,
     )
-        .fetch_all(&state.db)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                query = "SELECT * FROM users ORDER BY created_at DESC",
-                error = %e,
-                "DB error listing users"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("Database error: {}", e)})),
-            )
-        })?;
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            query = "SELECT * FROM users ORDER BY created_at DESC",
+            error = %e,
+            "DB error listing users"
+        );
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Database error: {}", e)})),
+        )
+    })?;
 
     Ok(Json(users.into_iter().map(UserResponse::from).collect()))
 }
@@ -774,11 +772,9 @@ pub async fn update_user(
 
     // Invalidate user cache and all JWT caches for this user after update.
     let mut redis = state.redis.clone();
+    let _ = crate::cache::CacheService::invalidate_user(&mut redis, &payload.id.to_string()).await;
     let _ =
-        crate::cache::CacheService::invalidate_user(&mut redis, &payload.id.to_string()).await;
-    let _ =
-        crate::cache::CacheService::invalidate_user_jwts(&mut redis, &payload.id.to_string())
-            .await;
+        crate::cache::CacheService::invalidate_user_jwts(&mut redis, &payload.id.to_string()).await;
 
     Ok(Json(updated_user.into()))
 }

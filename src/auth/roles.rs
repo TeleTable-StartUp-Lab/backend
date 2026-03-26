@@ -13,3 +13,7 @@ pub fn is_operator(role: &str) -> bool {
 pub fn can_operate(role: &str) -> bool {
     role == ADMIN || role == OPERATOR
 }
+
+pub fn can_view(role: &str) -> bool {
+    role == ADMIN || role == OPERATOR || role == VIEWER
+}

@@ -4,6 +4,7 @@ pub mod config;
 pub mod database;
 pub mod diary;
 pub mod logging;
+pub mod notifications;
 pub mod robot;
 
 use crate::auth::security::{admin_middleware, auth_middleware};
@@ -40,6 +41,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
     // protected routes (authentication required)
     let protected_routes = Router::new()
         .route("/me", get(auth::login::get_me))
+        .route(
+            "/robot/notifications",
+            get(notifications::handlers::get_notification_history),
+        )
         .route("/diary", post(diary::handlers::create_or_update_diary))
         .route("/diary", get(diary::handlers::get_diary))
         .route("/diary", delete(diary::handlers::delete_diary))
@@ -51,14 +56,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
     // admin routes (authentication + admin role required)
     let admin_routes = Router::new()
         .route("/users", get(auth::login::get_users))
-        .route(
-            "/users/{id}/sessions",
-            get(auth::login::get_user_sessions),
-        )
-        .route(
-            "/user/{id}/sessions",
-            get(auth::login::get_user_sessions),
-        )
+        .route("/users/{id}/sessions", get(auth::login::get_user_sessions))
+        .route("/user/{id}/sessions", get(auth::login::get_user_sessions))
         .route("/user", get(auth::login::get_user))
         .route("/user", post(auth::login::update_user))
         .route("/user", delete(auth::login::delete_user))
@@ -70,7 +69,6 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 
     // robot api routes (called by robot or public status)
     let robot_api_routes = Router::new()
-        .route("/status", get(robot::client_routes::get_status))
         .route(
             "/table/state",
             post(robot::robot_routes::update_robot_state),
@@ -79,10 +77,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/table/event",
             post(robot::robot_routes::handle_robot_event),
         )
-        .route(
-            "/table/register",
-            post(robot::robot_routes::register_robot),
-        )
+        .route("/table/register", post(robot::robot_routes::register_robot))
         .route(
             "/ws/robot/control",
             get(robot::client_routes::robot_control_ws),
@@ -90,6 +85,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/ws/drive/manual",
             get(robot::client_routes::manual_control_ws),
+        )
+        .route(
+            "/ws/robot/events",
+            get(robot::client_routes::robot_events_ws),
         );
 
     // robot control routes (called by authenticated user)

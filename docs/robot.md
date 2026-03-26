@@ -1,81 +1,67 @@
 # Robot API
 
-This document describes the **robot-related HTTP + WebSocket API** implemented in the backend, plus the coupling/contract with the robot’s HTTP server (including the Python simulator in `firmware/robot_simulator.py`).
+This document describes the current robot-related HTTP and WebSocket API implemented by the backend.
 
 ## Quick reference
 
-| Method   | Path                           | Auth         | Purpose                                                             |
-| -------- | ------------------------------ | ------------ | ------------------------------------------------------------------- |
-| GET      | `/status`                      | Public       | Get current robot status (derived from cached telemetry + lock)     |
-| GET (WS) | `/ws/robot/control`            | Public       | Stream backend robot commands to robot client(s)                    |
-| POST     | `/table/register`              | None         | Register robot URL with backend (robot → backend)                   |
-| POST     | `/table/state`                 | `X-Api-Key`  | Robot telemetry update (robot → backend)                            |
-| POST     | `/table/event`                 | `X-Api-Key`  | Robot event reporting (robot → backend)                             |
+| Method   | Path                           | Auth         | Purpose |
+| -------- | ------------------------------ | ------------ | ------- |
+| GET (WS) | `/ws/robot/control`            | Public       | Stream backend robot commands to robot client(s) |
+| POST     | `/table/register`              | None         | Register robot URL with backend (robot -> backend) |
+| POST     | `/table/state`                 | `X-Api-Key`  | Robot telemetry update (robot -> backend) |
+| POST     | `/table/event`                 | `X-Api-Key`  | Robot notification event (robot -> backend) |
 | GET      | `/nodes`                       | JWT (Bearer) | Get robot nodes (cached; fetched from registered robot HTTP server) |
-| GET      | `/routes`                      | JWT (Any)    | Get current route queue                                             |
-| POST     | `/routes`                      | JWT (Admin)  | Add route to queue                                                  |
-| DELETE   | `/routes/:id`                  | JWT (Admin)  | Remove route from queue                                             |
-| POST     | `/routes/optimize`             | JWT (Admin)  | Trigger route optimization                                          |
-| POST     | `/routes/select`               | JWT (Bearer) | Send `NAVIGATE` command (blocked while manual lock active)          |
-| POST     | `/drive/lock`                  | JWT (Bearer) | Acquire manual drive lock (30s expiry set on acquire)               |
-| DELETE   | `/drive/lock`                  | JWT (Bearer) | Release manual drive lock (only holder can release)                 |
-| GET      | `/robot/check`                 | JWT (Bearer) | Probe registered robot via `GET {robot_url}/health`                 |
-| GET (WS) | `/ws/drive/manual?token=<jwt>` | JWT in query | Send manual control commands; backend enforces lock-holder identity |
+| GET      | `/routes`                      | JWT (Bearer) | Get current route queue |
+| POST     | `/routes`                      | JWT (Admin)  | Add route to queue |
+| DELETE   | `/routes/{id}`                 | JWT (Admin)  | Remove route from queue |
+| POST     | `/routes/optimize`             | JWT (Admin)  | Trigger route optimization |
+| POST     | `/routes/select`               | JWT (Bearer) | Queue route selection (blocked while manual lock active) |
+| POST     | `/drive/lock`                  | JWT (Bearer) | Acquire manual drive lock (30s expiry set on acquire) |
+| DELETE   | `/drive/lock`                  | JWT (Bearer) | Release manual drive lock (only holder can release) |
+| GET      | `/robot/check`                 | JWT (Bearer) | Probe registered robot via `GET {robot_url}/health` |
+| GET      | `/robot/notifications`         | JWT (Viewer+) | Get persisted robot notification history |
+| GET (WS) | `/ws/drive/manual?token=<jwt>` | JWT in query | Manual control command socket (input only) |
+| GET (WS) | `/ws/robot/events?token=<jwt>` | JWT in query | Status + notification event socket (output only) |
 
-## Concepts and state
+## Key architectural note
 
-The backend maintains in-memory robot state in `SharedRobotState`:
+The old polling status endpoint was removed.
 
-- `current_state`: last reported robot telemetry (`RobotState`)
-- `last_state_update`: timestamp of the most recent `/table/state` call (used for staleness detection)
-- `robot_url`: registered robot base URL (via `/table/register`)
-- `cached_nodes`: cached result of robot `/nodes`
-- `manual_lock`: who holds manual drive lock and when it expires
-- `command_sender`: broadcast channel for `RobotCommand` messages
-- `queue`: Sequence of pending `QueuedRoute`s
-- `active_route`: Currently executing route from queue
+- There is no `GET /status` endpoint.
+- Status is pushed as WebSocket events on `/ws/robot/events`.
+- Notification events are also pushed on `/ws/robot/events`.
+- Manual control on `/ws/drive/manual` is command input only.
 
-### Robot Connection Staleness
+## In-memory robot state
 
-The backend tracks whether the robot is "connected" by comparing `last_state_update` against a **30-second timeout** (`ROBOT_STALE_TIMEOUT_SECS`). If the robot has not sent a `/table/state` update within this window, it is considered disconnected.
+The backend maintains `SharedRobotState` with:
 
-### Background Cleanup Task
+- `current_state`: last telemetry (`RobotState`)
+- `last_state_update`: time of latest `/table/state`
+- `robot_url`: discovered robot base URL (from `/table/register`)
+- `cached_nodes`: cached robot nodes
+- `manual_lock`: lock holder and expiry
+- `command_sender`: broadcast channel for `RobotCommand` (used by `/ws/robot/control`)
+- `status_sender`: broadcast channel for `status_update` events
+- `notification_sender`: broadcast channel for `robot_notification` events
+- `queue`: pending routes
+- `active_route`: currently executing queued route
 
-A background task runs every **5 seconds** (`CLEANUP_INTERVAL_SECS`) and performs:
+## Robot connection staleness
 
-1. **Expired lock cleanup:** Clears any manual lock whose `expires_at` is in the past.
-2. **Stale robot cleanup:** If the robot is stale (no updates in 30s):
-   - Clears `active_route` so the route queue is not permanently stuck.
-   - Clears `robot_url` so `/status` and `/robot/check` correctly reflect the disconnection.
+Robot is considered connected when `last_state_update` is within 30 seconds (`ROBOT_STALE_TIMEOUT_SECS`).
 
-### Queue & Preemption Logic
+A cleanup task runs every 5 seconds and:
 
-**Queue Processing:**
-The backend processes the queue sequentially. A `NAVIGATE` command is sent to the robot only when all of the following conditions are met:
+- clears expired manual locks
+- clears stale `active_route`
+- clears stale `robot_url`
 
-1. **No active (non-expired) manual lock** — expired locks are ignored.
-2. **Robot is connected** — `last_state_update` is within the 30-second staleness threshold.
-3. **Robot is IDLE** — `driveMode` equals `"IDLE"`.
-4. **No active route** — `active_route` is `None`.
-5. **Queue is non-empty.**
+## Data types
 
-**Admin Preemption:**
-If an **Admin** sends a navigation command via WebSocket while a queued route is active:
+### `RobotState` (robot telemetry)
 
-1. **Lock Revocation:** If an Operator holds the lock, it is forcibly revoked.
-2. **Queue Re-ordering:** The currently active route is cancelled and moved to the **front** of the queue.
-3. **Route Restart:** When resumed, the preempted route starts from its beginning.
-4. **Immediate Execution:** The Admin's command is executed immediately.
-
-### WS Command Filtering
-
-The `/ws/drive/manual` endpoint enforces an allow-list: `NAVIGATE`, `DRIVE_COMMAND`, `SET_MODE`, `CANCEL`. Unauthorized commands are rejected.
-
-### Data types
-
-#### `RobotState` (robot telemetry)
-
-Backend expects camelCase JSON:
+Expected camelCase JSON:
 
 ```json
 {
@@ -89,425 +75,288 @@ Backend expects camelCase JSON:
 }
 ```
 
-Notes:
+`lastNode` and `targetNode` are optional.
 
-- `lastNode` and `targetNode` are optional (`null` is allowed).
+### `RobotEvent` (robot -> backend)
 
-#### `RobotEvent`
-
-Backend expects camelCase JSON and an RFC3339 timestamp parseable by `chrono`:
+Expected JSON:
 
 ```json
 {
-  "event": "DESTINATION_REACHED",
-  "timestamp": "2026-01-16T10:00:00Z"
+  "priority": "INFO",
+  "message": "Route started: Home -> Kitchen"
 }
 ```
 
-#### `RobotCommand` (sent over WebSocket)
+`priority` must be one of:
 
-Backend serializes commands as JSON text frames with a tagged enum (`command`):
+- `INFO`
+- `WARN`
+- `ERROR`
 
-- Navigate:
-
-```json
-{ "command": "NAVIGATE", "start": "Home", "destination": "Kitchen" }
-```
-
-- Cancel:
-
-```json
-{ "command": "CANCEL" }
-```
-
-- Set mode:
-
-```json
-{ "command": "SET_MODE", "mode": "MANUAL" }
-```
-
-- Drive command (note snake_case field names):
-
-```json
-{ "command": "DRIVE_COMMAND", "linear_velocity": 0.5, "angular_velocity": 0.2 }
-```
-
----
-
-## Public endpoints
-
-### `GET /status`
-
-Return robot status for UI/clients.
-
-#### Auth
-
-- No authentication required.
-
-#### Behavior
-
-- If the robot has never reported telemetry, returns default values (`UNKNOWN`, `0`, etc.).
-- Computes `lastRoute` only when both `lastNode` and `targetNode` exist in the current telemetry.
-- Includes `manualLockHolderName` **only if the lock has not expired**. Expired locks are treated as if no lock exists.
-- Includes `robotConnected` indicating whether the robot has sent a state update within the last 30 seconds.
-
-#### Response (`200 OK`)
+### Persisted notification (`robot_notifications`)
 
 ```json
 {
-  "systemHealth": "OK|UNKNOWN",
-  "batteryLevel": 85,
-  "driveMode": "IDLE|UNKNOWN",
-  "cargoStatus": "EMPTY|UNKNOWN",
-  "lastRoute": { "start_node": "Home", "end_node": "Kitchen" },
-  "position": "Home|UNKNOWN",
-  "manualLockHolderName": "Alice",
-  "robotConnected": true
+  "id": "uuid",
+  "priority": "WARN",
+  "message": "Low battery: 18%",
+  "receivedAt": "2026-03-26T12:34:56Z"
 }
 ```
 
-`lastRoute` and `manualLockHolderName` can be `null`.
+### `RobotCommand` (over WebSocket)
 
-### `GET /ws/robot/control`
+Tagged JSON with `command`:
 
-WebSocket that **streams robot commands** from backend to connected clients.
+- `NAVIGATE`
+- `CANCEL`
+- `DRIVE_COMMAND`
+- `LED`
+- `AUDIO_BEEP`
+- `AUDIO_VOLUME`
 
-#### Auth
+## Robot-to-backend endpoints
 
-- No authentication required.
+## `POST /table/state`
 
-#### Behavior
+Auth:
 
-- The backend **only sends** messages; it does not read incoming frames.
-- For each broadcasted `RobotCommand`, the backend sends a text frame containing JSON.
+- `X-Api-Key` required and must match `ROBOT_API_KEY`
 
-#### Error/close behavior
+Behavior:
 
-- When sending fails (e.g., client disconnected), the backend stops the loop and the socket closes.
+- updates `current_state`
+- updates `last_state_update`
+- clears `active_route` when robot returns to `driveMode: "IDLE"`
+- triggers queue processing
+- broadcasts `status_update` on `/ws/robot/events`
 
----
-
-## Robot-to-backend (API key protected)
-
-These endpoints are called by the robot (or robot simulator).
-
-### Authentication
-
-Requests must include:
-
-- `X-Api-Key: <robot api key>`
-
-The expected value is `ROBOT_API_KEY` (defaults to `secret-robot-key`).
-
-### `POST /table/state`
-
-Update the backend’s cached telemetry.
-
-#### Request
-
-- Header: `X-Api-Key`
-- Body: `RobotState` JSON (camelCase)
-#### Behavior
-
-- Stores the telemetry in `current_state`.
-- Records `last_state_update` to the current UTC timestamp (used for staleness detection).
-- If an `active_route` exists and the robot reports `driveMode: "IDLE"`, the active route is cleared (route completed).
-- Triggers queue processing after updating state.
-#### Responses
-
-- `200 OK`:
+Response:
 
 ```json
 { "status": "success" }
 ```
 
-- `401 Unauthorized` if API key is missing/invalid:
+Error:
 
 ```json
 { "status": "error", "message": "Invalid API Key" }
 ```
 
-### `POST /table/event`
+## `POST /table/event`
 
-Report a robot event.
+Auth:
 
-#### Request
+- `X-Api-Key` required and must match `ROBOT_API_KEY`
 
-- Header: `X-Api-Key`
-- Body: `RobotEvent` JSON (camelCase)
+Behavior:
 
-#### Responses
+- validates non-empty `message`
+- persists notification in `robot_notifications`
+- broadcasts `robot_notification` on `/ws/robot/events`
 
-- `200 OK`:
+Success response:
 
 ```json
-{ "status": "success" }
+{
+  "status": "success",
+  "notification": {
+    "id": "uuid",
+    "priority": "INFO",
+    "message": "Route started",
+    "receivedAt": "2026-03-26T12:34:56Z"
+  }
+}
 ```
 
-- `401 Unauthorized` if API key is missing/invalid (same as `/table/state`).
+Errors:
 
----
+- `401` invalid API key
+- `400` empty message
+- `500` DB insert failure
 
-## User-to-backend robot control (JWT protected)
+## `POST /table/register`
 
-These endpoints require:
+Behavior:
 
-- `Authorization: Bearer <jwt>`
+- registers robot URL from source IP + payload port
+- prefers `X-Real-IP`, then first `X-Forwarded-For`, then socket IP
+- broadcasts `status_update` on `/ws/robot/events`
 
-### `GET /nodes`
+Response:
 
-Return the robot’s navigable nodes.
+- `200 OK`
 
-#### Behavior
+## User JWT-protected robot endpoints
 
-- If nodes are cached in memory, returns cached nodes.
-- Otherwise, if a robot URL is known, performs `GET {robot_url}/nodes` and expects:
+## `GET /nodes`
+
+Behavior:
+
+- checks Redis cache first
+- then in-memory cache
+- then robot `GET {robot_url}/nodes`
+
+Returns:
 
 ```json
 { "nodes": ["Home", "Kitchen"] }
 ```
 
-- On successful fetch and parse, caches nodes forever (until backend restart).
+## `POST /routes/select`
 
-#### Responses
-
-- `200 OK`:
-
-```json
-{ "nodes": ["Home", "Kitchen"] }
-```
-
-- `503 Service Unavailable` (robot unknown or fetch/parsing failed):
-
-```json
-{ "nodes": [] }
-```
-
-### `POST /routes/select`
-
-Broadcast a `NAVIGATE` command.
-
-#### Request
+Request:
 
 ```json
 { "start": "Home", "destination": "Kitchen" }
 ```
 
-#### Lock interaction
+Behavior:
 
-- If a manual lock exists and `expires_at > now`, navigation is blocked.
+- requires Operator or Admin
+- blocked by active manual lock
+- route is queued, not directly executed
 
-#### Responses (note: **HTTP status is always 200**)
-
-- If locked:
-
-```json
-{ "status": "error", "message": "Robot is manually locked" }
-```
-
-- If accepted:
+Success:
 
 ```json
-{ "status": "success", "message": "Route selected" }
+{ "status": "success", "message": "Route queued" }
 ```
 
-### `POST /drive/lock`
+## `POST /drive/lock` and `DELETE /drive/lock`
 
-Acquire the manual-drive lock.
+Behavior:
 
-#### Behavior
+- lock expires after 30 seconds
+- Operator/Admin only
+- broadcasts `status_update` after successful acquire/release
 
-- If another user holds a non-expired lock, acquisition is refused (unless requester is Admin, who can forcibly revoke).
-- On success, lock expiry is set to `now + 30 seconds`.
-- **Lock renewal:** The same user can re-acquire the lock to extend its expiry. The frontend automatically renews every 15 seconds to prevent silent expiry during active use.
-- **Operators** cannot acquire the lock while an automated route is active. **Admins** can.
+## `GET /robot/check`
 
-#### Responses (note: **HTTP status is always 200**)
+Behavior:
 
-- Success:
+- checks staleness first
+- if connected, probes `GET {robot_url}/health`
+
+## `GET /robot/notifications`
+
+Auth:
+
+- Viewer or higher
+
+Query params:
+
+- `limit` (default 100, min 1, max 500)
+- `offset` (default 0)
+
+Response:
 
 ```json
-{ "status": "success", "message": "Lock acquired" }
+[
+  {
+    "id": "uuid",
+    "priority": "ERROR",
+    "message": "Robot emergency stop triggered",
+    "receivedAt": "2026-03-26T13:00:00Z"
+  }
+]
 ```
 
-- Refused (held by someone else):
+## WebSockets
 
-```json
-{ "status": "error", "message": "Lock held by <name>" }
-```
+## `GET /ws/robot/control`
 
-- Invalid `sub` in JWT (not a UUID):
+Purpose:
 
-```json
-{ "status": "error", "message": "Invalid User ID" }
-```
+- backend -> robot command stream
 
-### `DELETE /drive/lock`
+Auth:
 
-Release the manual-drive lock.
+- public
 
-#### Responses (note: **HTTP status is always 200**)
+Behavior:
 
-- Success:
+- sends `RobotCommand` frames from `command_sender`
+- robot client should connect here to receive commands
 
-```json
-{ "status": "success", "message": "Lock released" }
-```
+## `GET /ws/drive/manual?token=<jwt>`
 
-- Not lock holder:
+Purpose:
 
-```json
-{ "status": "error", "message": "You do not hold the lock" }
-```
+- user manual control input socket
 
-### `GET /robot/check`
+Auth:
 
-Check if the backend can reach the discovered robot.
+- JWT token in query
 
-#### Behavior
+Behavior:
 
-- First checks **staleness**: if the robot has not sent a `/table/state` update within the last 30 seconds, it is reported as disconnected without attempting an HTTP health check.
-- If not stale and a robot URL is known, performs `GET {robot_url}/health`.
-- Returns the HTTP status code returned by the robot in `robot_status`.
+- processes incoming command frames only
+- does not stream status/notifications
+- Viewer cannot send commands
+- Operator restrictions apply (including lock checks)
+- Admin preemption for `NAVIGATE` applies
 
-#### Responses (note: **HTTP status is always 200**)
+## `GET /ws/robot/events?token=<jwt>`
 
-- Success (reachable and not stale):
+Purpose:
 
-```json
-{ "status": "success", "connected": true, "robot_status": 200, "url": "http://..." }
-```
+- server push socket for robot status and notifications
 
-- Error (robot registered but stale):
+Auth:
 
-```json
-{
-  "status": "error",
-  "connected": false,
-  "message": "Robot registered but no recent state updates (stale)",
-  "url": "http://..."
-}
-```
+- JWT token in query
+- Viewer or higher
 
-- Error (request failed):
+Behavior:
 
-```json
-{
-  "status": "error",
-  "connected": false,
-  "message": "Failed to reach robot: ...",
-  "url": "http://..."
-}
-```
+- sends one initial `status_update` on connect
+- streams subsequent:
+  - `status_update`
+  - `robot_notification`
 
-- Error (no robot registered):
-
-```json
-{ "status": "error", "connected": false, "message": "No robot URL registered" }
-```
-
----
-
-## Manual control WebSocket (JWT token in query)
-
-### `GET /ws/drive/manual?token=<jwt>`
-
-WebSocket used to send manual control commands (as `RobotCommand` JSON text frames) into the backend.
-
-#### Auth
-
-- Requires `token` query parameter containing a valid JWT.
-- If token is invalid/expired, the backend returns `401 Unauthorized` (no JSON body).
-
-#### Lock enforcement
-
-- For each incoming text frame, the backend checks whether the sender is the current lock holder **and** whether the lock has not expired.
-- If the sender is not the holder, or the lock has expired, the command is silently ignored.
-- If the command cannot be parsed as `RobotCommand`, it is silently ignored.
-
-#### Operator restrictions
-
-- Operators **cannot** send `NAVIGATE` or `CANCEL` commands via WebSocket; those are silently dropped.
-- Operators must hold a valid (non-expired) lock to send any other command.
-
-#### Admin behavior
-
-- Admins can send any command without holding the lock.
-- If an Admin sends a `NAVIGATE` command while an Operator holds the lock, the lock is forcibly revoked.
-- Admin navigation preempts any active queued route (cancels it and moves it to the front of the queue).
-
----
-
-## Firmware/Python simulator coupling and contracts
-
-The backend expects the robot to implement (at minimum) these HTTP endpoints, and the robot expects the backend to implement the robot endpoints above.
-
-### Python simulator HTTP API (robot side)
-
-The Python simulator in `firmware/robot_simulator.py` starts a Flask server (default `0.0.0.0:8000`) with:
-
-- `GET /health` → `200 OK`
-
-```json
-{ "status": "ok", "message": "Robot is online" }
-```
-
-- `GET /status` → `200 OK` returning the current in-process telemetry dict (same shape as `RobotState`)
-- `GET /nodes` → `200 OK`
+`status_update` payload (camelCase keys):
 
 ```json
 {
-  "nodes": [
-    "Home",
-    "Kitchen",
-    "Living Room",
-    "Office",
-    "Bedroom",
-    "Charging Station"
-  ]
+  "event": "status_update",
+  "data": {
+    "systemHealth": "OK",
+    "batteryLevel": 82,
+    "driveMode": "IDLE",
+    "cargoStatus": "EMPTY",
+    "position": "Home",
+    "lastRoute": { "start_node": "Home", "end_node": "Kitchen" },
+    "manualLockHolderName": null,
+    "robotConnected": true,
+    "nodes": ["Home", "Kitchen", "Office"]
+  }
 }
 ```
 
-### Robot discovery (UDP)
-
-- Backend listens on UDP `0.0.0.0:3001`.
-- Robot should broadcast a JSON message of the form:
+`robot_notification` payload:
 
 ```json
-{ "type": "announce", "port": 8000 }
+{
+  "event": "robot_notification",
+  "data": {
+    "id": "uuid",
+    "priority": "WARN",
+    "message": "Low battery: 18%",
+    "receivedAt": "2026-03-26T13:05:00Z"
+  }
+}
 ```
 
-- Backend records `robot_url` as `http://<sender_ip>:<port>`.
+## Robot simulator contract
 
-The Python simulator sends this broadcast every 10 seconds.
+Robot simulator should:
 
-### Robot HTTP server contract (robot side)
+- push telemetry with `POST {backend}/table/state` + `X-Api-Key`
+- push notification events with `POST {backend}/table/event` + `X-Api-Key`
+- receive commands from `ws://{backend}/ws/robot/control`
 
-The backend calls:
+Clients (frontend/mobile) should subscribe to:
 
-- `GET {robot_url}/health`
-  - Used by `/robot/check`
-  - Only the HTTP status code is used.
-
-- `GET {robot_url}/nodes`
-  - Used by `/nodes`
-  - Must return JSON parseable as:
-
-```json
-{ "nodes": ["Home", "Kitchen"] }
-```
-
-### Robot pushing telemetry/events (robot → backend)
-
-The Python simulator (and real robot) are expected to call:
-
-- `POST {backend}/table/state` with `X-Api-Key` and `RobotState` JSON
-- `POST {backend}/table/event` with `X-Api-Key` and `RobotEvent` JSON
-
-### Robot receiving commands (backend → robot)
-
-The Python simulator connects to:
-
-- `ws://{backend}/ws/robot/control`
-
-and expects each text frame to be a JSON object containing a `command` field (see `RobotCommand` above).
+- `ws://{backend}/ws/robot/events?token=<jwt>` for status and notifications
