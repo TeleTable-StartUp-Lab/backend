@@ -19,7 +19,7 @@ fn auth_header_for(user_id: &str, name: &str, role: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Expired lock is not reported in /status
+// 1. Expired lock is not reported in status snapshot
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_status_hides_expired_lock() {
@@ -41,35 +41,18 @@ async fn test_status_hides_expired_lock() {
         });
     }
 
-    let response = app
-        .router
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/status")
-                .method("GET")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let status: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let status = backend::robot::build_status_update(&app.state).await;
 
     // The expired lock holder should NOT appear
     assert!(
-        status["manualLockHolderName"].is_null(),
+        status.manual_lock_holder_name.is_none(),
         "Expired lock holder should not be reported in status, got: {:?}",
-        status["manualLockHolderName"]
+        status.manual_lock_holder_name
     );
 }
 
 // ---------------------------------------------------------------------------
-// 2. Active (non-expired) lock IS reported in /status
+    // 2. Active (non-expired) lock IS reported in status snapshot
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_status_shows_active_lock() {
@@ -90,28 +73,12 @@ async fn test_status_shows_active_lock() {
         });
     }
 
-    let response = app
-        .router
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/status")
-                .method("GET")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let status: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(status["manualLockHolderName"], "Active User");
+    let status = backend::robot::build_status_update(&app.state).await;
+    assert_eq!(status.manual_lock_holder_name, Some("Active User".to_string()));
 }
 
 // ---------------------------------------------------------------------------
-// 3. /status reports robot_connected = false when no state updates received
+// 3. Status snapshot reports robot_connected = false when no state updates received
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_status_robot_disconnected_when_no_updates() {
@@ -123,29 +90,13 @@ async fn test_status_robot_disconnected_when_no_updates() {
         }
     };
 
-    // No state updates → last_state_update is None
-    let response = app
-        .router
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/status")
-                .method("GET")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let status: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(status["robotConnected"], false);
+    // No state updates -> last_state_update is None
+    let status = backend::robot::build_status_update(&app.state).await;
+    assert!(!status.robot_connected);
 }
 
 // ---------------------------------------------------------------------------
-// 4. /status reports robot_connected = true after a fresh state update
+// 4. Status snapshot reports robot_connected = true after a fresh state update
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_status_robot_connected_after_update() {
@@ -183,29 +134,12 @@ async fn test_status_robot_connected_after_update() {
         .await
         .unwrap();
 
-    // Now check /status
-    let response = app
-        .router
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/status")
-                .method("GET")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let status: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(status["robotConnected"], true);
+    let status = backend::robot::build_status_update(&app.state).await;
+    assert!(status.robot_connected);
 }
 
 // ---------------------------------------------------------------------------
-// 5. /status reports robot_connected = false when last update is stale
+// 5. Status snapshot reports robot_connected = false when last update is stale
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_status_robot_disconnected_when_stale() {
@@ -223,24 +157,8 @@ async fn test_status_robot_disconnected_when_stale() {
         *last_update = Some(chrono::Utc::now() - chrono::Duration::seconds(60));
     }
 
-    let response = app
-        .router
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/status")
-                .method("GET")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let status: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(status["robotConnected"], false);
+    let status = backend::robot::build_status_update(&app.state).await;
+    assert!(!status.robot_connected);
 }
 
 // ---------------------------------------------------------------------------
