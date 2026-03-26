@@ -11,7 +11,7 @@ This document describes the **database layer** used by the backend: how the serv
 | Connection source | `DATABASE_URL` environment variable |
 | Pool size | `10` connections in the app, `5` in integration tests |
 | Migration source | `./migrations` |
-| Main tables | `users`, `diary_entries`, `sessions` |
+| Main tables | `users`, `diary_entries`, `sessions`, `robot_notifications` |
 | Secondary data store | Redis (`REDIS_URL`) for cache/session-adjacent runtime data, **not** relational records |
 
 ## Connection model
@@ -59,11 +59,12 @@ The test helper uses a smaller pool size of **5** connections and also runs migr
 
 ## Schema overview
 
-The relational schema currently has three core tables:
+The relational schema currently has four core tables:
 
 - `users` stores account identity, credentials, and role.
 - `diary_entries` stores work-log entries owned by a user.
 - `sessions` stores login session history and client metadata for a user.
+- `robot_notifications` stores persisted robot-originated notification events.
 
 There are also two convenience views:
 
@@ -102,6 +103,13 @@ erDiagram
         JSONB fingerprint_data
         TEXT user_agent
         TIMESTAMPTZ created_at
+    }
+
+    ROBOT_NOTIFICATIONS {
+        UUID id PK
+        TEXT priority
+        TEXT message
+        TIMESTAMPTZ received_at
     }
 ```
 
@@ -189,6 +197,29 @@ Stores login session history and device/client metadata.
 - `idx_sessions_user_id_created_at` on `(user_id, created_at DESC)`
 
 These support user session history queries and recent-session ordering.
+
+### `robot_notifications`
+
+Stores persisted robot notifications received via `/table/event`.
+
+| Column | Type | Null | Default | Purpose |
+| ------ | ---- | ---- | ------- | ------- |
+| `id` | `UUID` | No | `gen_random_uuid()` | Primary key for the notification |
+| `priority` | `TEXT` | No | None | Notification severity (`INFO`, `WARN`, `ERROR`) |
+| `message` | `TEXT` | No | None | Notification message content |
+| `received_at` | `TIMESTAMP WITH TIME ZONE` | No | `NOW()` | Server-side ingestion timestamp |
+
+#### Behavior notes
+
+- Inserted by the backend when robot clients call `POST /table/event` with a valid API key.
+- `priority` is constrained by database `CHECK` to one of: `INFO`, `WARN`, `ERROR`.
+- Rows are ordered by `received_at DESC` when served from `GET /robot/notifications`.
+
+#### Indexes
+
+- `idx_robot_notifications_received_at` on `received_at DESC`
+
+This supports efficient newest-first notification history queries.
 
 ## Views
 
