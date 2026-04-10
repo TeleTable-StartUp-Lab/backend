@@ -54,9 +54,7 @@ async fn main() {
         .expect("Failed to create database pool");
     tracing::info!("Connected to database");
 
-    let redis = create_redis_client(&config.redis_url)
-        .await
-        .expect("Failed to create Redis client");
+    let redis = create_redis_client(&config.redis_url).await;
     tracing::info!("Connected to Redis");
 
     tracing::info!("Running database migrations...");
