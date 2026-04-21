@@ -22,7 +22,8 @@ This document describes the **auth-related HTTP API** implemented in the backend
 - Authenticated endpoints require the header:
   - `Authorization: Bearer <jwt>`
 - The backend verifies the token using `JWT_SECRET` (HMAC; jsonwebtoken defaults) and validates expiry (`exp`).
-- **Real-time role enforcement:** On every authenticated request, the auth middleware fetches the user's **current role from the database** (with a Redis user-cache fast path) and overrides the role embedded in the JWT. This ensures role changes (e.g. Admin demoting an Operator to Viewer) take effect immediately — the user does not need to log out and back in.
+- **Real-time role enforcement for HTTP routes:** On every authenticated HTTP request, the auth middleware fetches the user's **current role from the database** (with a Redis user-cache fast path) and overrides the role embedded in the JWT. This ensures role changes (e.g. Admin demoting an Operator to Viewer) take effect immediately for Bearer-token HTTP endpoints — the user does not need to log out and back in.
+- **WebSocket auth differs:** `/ws/drive/manual?token=<jwt>` and `/ws/robot/events?token=<jwt>` decode the JWT from the query token directly and do **not** run the HTTP auth middleware, so they do not refresh the role from the database. Their authorization depends on the role embedded in the presented token.
 - **JWT cache invalidation on role change:** When an admin updates a user via `POST /user`, all cached JWT validation entries for that user are invalidated in Redis, forcing a fresh token decode and role lookup on the next request.
 
 ## Roles and permissions
@@ -54,7 +55,7 @@ Tokens contain these claims (stored in request extensions by middleware):
 }
 ```
 
-> **Note:** The `role` claim is set at login time, but the auth middleware always refreshes it from the database before passing claims to handlers. The JWT-embedded role is effectively a hint; the authoritative role is always the current database value.
+> **Note:** For HTTP routes protected by auth middleware, the `role` claim is set at login time but refreshed from the database before passing claims to handlers. For WebSocket routes that accept `?token=<jwt>`, the embedded JWT role is used as-is for that connection.
 
 ### Common auth errors (middleware)
 

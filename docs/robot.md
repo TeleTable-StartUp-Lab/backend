@@ -216,12 +216,45 @@ Behavior:
 
 - requires Operator or Admin
 - blocked by active manual lock
-- route is queued, not directly executed
+- appends the route to the in-memory queue
+- then calls queue processing, which may dispatch it immediately if the robot is connected, idle, unlocked, and no other route is active
+- does not directly send a navigation command from this handler
 
 Success:
 
 ```json
 { "status": "success", "message": "Route queued" }
+```
+
+Lock conflict response:
+
+- HTTP status remains `200 OK`
+- body is:
+
+```json
+{ "status": "error", "message": "Robot is manually locked" }
+```
+
+## `GET /routes`
+
+Behavior:
+
+- returns a JSON array of routes
+- if an `active_route` exists, it is returned as the first element
+- queued routes follow in FIFO order
+
+Example:
+
+```json
+[
+  {
+    "id": "uuid",
+    "start": "Home",
+    "destination": "Kitchen",
+    "added_at": "2026-03-26T12:34:56Z",
+    "added_by": "Admin User"
+  }
+]
 ```
 
 ## `POST /drive/lock` and `DELETE /drive/lock`
@@ -231,6 +264,33 @@ Behavior:
 - lock expires after 30 seconds
 - Operator/Admin only
 - broadcasts `status_update` after successful acquire/release
+- non-admin users cannot acquire the lock while an automated route is active
+- if another non-expired lock is held:
+  - non-admin acquire returns HTTP `200` with `{ "status": "error", "message": "Lock held by <name>" }`
+  - admin acquire replaces the existing lock holder
+- `DELETE /drive/lock` only succeeds for the current lock holder, even for admins
+
+Successful acquire example:
+
+```json
+{ "status": "success", "message": "Lock acquired" }
+```
+
+Admin acquire while an automated route is active:
+
+```json
+{ "status": "success", "message": "Admin lock acquired while automated route is active" }
+```
+
+Failure examples use HTTP `200 OK` with JSON error payloads, for example:
+
+```json
+{ "status": "error", "message": "Cannot acquire lock while automated route is active" }
+```
+
+```json
+{ "status": "error", "message": "You do not hold the lock" }
+```
 
 ## `GET /robot/check`
 
@@ -279,6 +339,7 @@ Behavior:
 
 - sends `RobotCommand` frames from `command_sender`
 - robot client should connect here to receive commands
+- this socket is output-only from backend to robot clients
 
 ## `GET /ws/drive/manual?token=<jwt>`
 
@@ -289,14 +350,22 @@ Purpose:
 Auth:
 
 - JWT token in query
+- the token is decoded directly and does not pass through the HTTP auth middleware role-refresh path
 
 Behavior:
 
 - processes incoming command frames only
 - does not stream status/notifications
-- Viewer cannot send commands
-- Operator restrictions apply (including lock checks)
-- Admin preemption for `NAVIGATE` applies
+- Viewer connections are accepted, but all incoming commands are ignored
+- Operator commands require a valid, unexpired lock held by that same operator
+- Operator can only send manual drive commands (`DRIVE_COMMAND`)
+- Operator cannot send `NAVIGATE`, `CANCEL`, `LED`, `AUDIO_BEEP`, or `AUDIO_VOLUME`
+- Admin can send all commands
+- Admin `NAVIGATE`:
+  - revokes another user's lock if needed
+  - cancels the current active automated route if one exists
+  - re-queues that automated route at the front of the queue
+  - tracks the admin navigation as the new `active_route`
 
 ## `GET /ws/robot/events?token=<jwt>`
 
@@ -308,6 +377,7 @@ Auth:
 
 - JWT token in query
 - Viewer or higher
+- the token is decoded directly and does not pass through the HTTP auth middleware role-refresh path
 
 Behavior:
 

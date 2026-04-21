@@ -13,11 +13,11 @@ It provides:
 
 The system implements the following roles:
 
-- **Admin:** Full system access. Can overwrite active routes via WebSocket, forcibly revoke manual mode locks, and manage users.
+- **Admin:** Full system access. Can manage users, acquire the manual drive lock even when another user holds it, and send any robot command over WebSocket. Admin `NAVIGATE` commands also revoke another user's lock if needed and preempt automated routing.
 - **Operator:** Can select routes, create diary entries, and acquire "manual mode" locks.
 - **Viewer:** Default read-only access. Cannot create/update/delete diary entries or control the robot.
 
-Role changes are enforced **immediately** — the auth middleware refreshes the user's role from the database on every request, so demoting a user takes effect without requiring them to log out.
+Role changes are enforced **immediately for authenticated HTTP routes** — the auth middleware refreshes the user's role from the database on every request, so demoting a user takes effect without requiring them to log out. WebSocket endpoints that take `?token=<jwt>` decode the presented token directly, so their authorization depends on the role embedded in that token.
 
 ## Key behaviors
 
