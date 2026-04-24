@@ -2,6 +2,7 @@ use super::models::{QueuedRoute, RobotCommand, RobotState, RobotStatusUpdate};
 use crate::notifications::models::RobotNotification;
 use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
@@ -19,6 +20,7 @@ pub struct SharedRobotState {
     pub status_sender: broadcast::Sender<RobotStatusUpdate>,
     pub notification_sender: broadcast::Sender<RobotNotification>,
     pub robot_url: Arc<RwLock<Option<String>>>,
+    pub control_channel_connections: Arc<AtomicUsize>,
     pub queue: Arc<RwLock<VecDeque<QueuedRoute>>>,
     pub active_route: Arc<RwLock<Option<QueuedRoute>>>,
 }
@@ -43,6 +45,7 @@ impl SharedRobotState {
             status_sender: status_tx,
             notification_sender: notification_tx,
             robot_url: Arc::new(RwLock::new(None)),
+            control_channel_connections: Arc::new(AtomicUsize::new(0)),
             queue: Arc::new(RwLock::new(VecDeque::new())),
             active_route: Arc::new(RwLock::new(None)),
         }
@@ -55,6 +58,23 @@ impl SharedRobotState {
             Some(t) => (Utc::now() - t).num_seconds() < ROBOT_STALE_TIMEOUT_SECS,
             None => false,
         }
+    }
+
+    pub fn register_control_channel_connection(&self) {
+        self.control_channel_connections
+            .fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn unregister_control_channel_connection(&self) {
+        let _ = self.control_channel_connections.fetch_update(
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+            |current| current.checked_sub(1),
+        );
+    }
+
+    pub fn is_control_channel_connected(&self) -> bool {
+        self.control_channel_connections.load(Ordering::SeqCst) > 0
     }
 
     /// Clear an expired manual lock. Returns true if a lock was cleared.

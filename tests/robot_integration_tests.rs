@@ -232,6 +232,7 @@ async fn test_get_robot_debug_requires_admin_and_merges_robot_status() {
 
     assert_eq!(debug["telemetry"]["systemHealth"], "OK");
     assert_eq!(debug["connection"]["robotStatusReachable"], true);
+    assert_eq!(debug["connection"]["controlChannelConnected"], false);
     assert_eq!(debug["sensors"]["light"]["lux"], 124.5);
     assert_eq!(debug["sensors"]["infrared"]["front"], false);
     assert_eq!(debug["sensors"]["infrared"]["left"], true);
@@ -319,6 +320,7 @@ async fn test_get_robot_debug_degrades_when_robot_status_unreachable() {
     let debug: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(debug["connection"]["robotStatusReachable"], false);
+    assert_eq!(debug["connection"]["controlChannelConnected"], false);
     assert_eq!(debug["sensors"]["light"]["lux"], 88.0);
     assert_eq!(debug["sensors"]["light"]["source"], "table_state");
     assert_eq!(debug["sensors"]["infrared"]["front"], true);
