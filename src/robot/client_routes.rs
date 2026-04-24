@@ -500,7 +500,10 @@ pub async fn acquire_lock(
         .into_response();
 
         drop(lock);
-        crate::robot::broadcast_status_update(&state).await;
+        let state_for_broadcast = state.clone();
+        tokio::spawn(async move {
+            crate::robot::broadcast_status_update(&state_for_broadcast).await;
+        });
 
         response
     } else {
@@ -544,7 +547,10 @@ pub async fn release_lock(
             .into_response();
 
             drop(lock);
-            crate::robot::broadcast_status_update(&state).await;
+            let state_for_broadcast = state.clone();
+            tokio::spawn(async move {
+                crate::robot::broadcast_status_update(&state_for_broadcast).await;
+            });
 
             return response;
         }
