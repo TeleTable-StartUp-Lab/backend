@@ -18,17 +18,6 @@ fn auth_header_for(user_id: &str, name: &str, role: &str) -> String {
     format!("Bearer {token}")
 }
 
-async fn mark_robot_ready_for_control(app: &common::TestApp) {
-    {
-        let mut last_update = app.state.robot_state.last_state_update.write().await;
-        *last_update = Some(chrono::Utc::now());
-    }
-
-    if !app.state.robot_state.is_control_channel_connected() {
-        app.state.robot_state.register_control_channel_connection();
-    }
-}
-
 // ---------------------------------------------------------------------------
 // 1. Expired lock is not reported in status snapshot
 // ---------------------------------------------------------------------------
@@ -60,7 +49,6 @@ async fn test_status_hides_expired_lock() {
         "Expired lock holder should not be reported in status, got: {:?}",
         status.manual_lock_holder_name
     );
-    assert!(!status.control_channel_connected);
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +78,6 @@ async fn test_status_shows_active_lock() {
         status.manual_lock_holder_name,
         Some("Active User".to_string())
     );
-    assert!(!status.control_channel_connected);
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +96,6 @@ async fn test_status_robot_disconnected_when_no_updates() {
     // No state updates -> last_state_update is None
     let status = backend::robot::build_status_update(&app.state).await;
     assert!(!status.robot_connected);
-    assert!(!status.control_channel_connected);
 }
 
 // ---------------------------------------------------------------------------
@@ -153,27 +139,6 @@ async fn test_status_robot_connected_after_update() {
 
     let status = backend::robot::build_status_update(&app.state).await;
     assert!(status.robot_connected);
-    assert!(!status.control_channel_connected);
-}
-
-// ---------------------------------------------------------------------------
-// 4b. Status snapshot reports control channel connectivity separately
-// ---------------------------------------------------------------------------
-#[tokio::test]
-async fn test_status_reports_control_channel_connectivity() {
-    let app = match common::setup_test_app().await {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("Skipping: {e}");
-            return;
-        }
-    };
-
-    app.state.robot_state.register_control_channel_connection();
-
-    let status = backend::robot::build_status_update(&app.state).await;
-    assert!(status.control_channel_connected);
-    assert!(!status.robot_connected);
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +162,6 @@ async fn test_status_robot_disconnected_when_stale() {
 
     let status = backend::robot::build_status_update(&app.state).await;
     assert!(!status.robot_connected);
-    assert!(!status.control_channel_connected);
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +224,6 @@ async fn test_expired_lock_allows_new_acquisition() {
     };
 
     let old_user_id = uuid::Uuid::new_v4();
-    mark_robot_ready_for_control(&app).await;
 
     // Set an expired lock for a different user
     {
@@ -325,7 +288,6 @@ async fn test_lock_renewal_extends_expiry() {
         "Lock User",
         "Operator",
     );
-    mark_robot_ready_for_control(&app).await;
 
     // Acquire lock
     let _ = app
@@ -389,7 +351,6 @@ async fn test_process_queue_skipped_with_active_lock() {
     };
 
     // Make robot connected and IDLE
-    app.state.robot_state.register_control_channel_connection();
     {
         let mut last_update = app.state.robot_state.last_state_update.write().await;
         *last_update = Some(chrono::Utc::now());
@@ -471,7 +432,6 @@ async fn test_process_queue_proceeds_with_expired_lock() {
     };
 
     // Make robot connected and IDLE
-    app.state.robot_state.register_control_channel_connection();
     {
         let mut last_update = app.state.robot_state.last_state_update.write().await;
         *last_update = Some(chrono::Utc::now());
@@ -546,64 +506,7 @@ async fn test_process_queue_proceeds_with_expired_lock() {
 }
 
 // ---------------------------------------------------------------------------
-// 11. Process queue skips when control channel is missing
-// ---------------------------------------------------------------------------
-#[tokio::test]
-async fn test_process_queue_skipped_without_control_channel() {
-    let app = match common::setup_test_app().await {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("Skipping: {e}");
-            return;
-        }
-    };
-
-    {
-        let mut last_update = app.state.robot_state.last_state_update.write().await;
-        *last_update = Some(chrono::Utc::now());
-    }
-    {
-        let mut state = app.state.robot_state.current_state.write().await;
-        *state = Some(backend::robot::models::RobotState {
-            system_health: "OK".to_string(),
-            battery_level: 100,
-            drive_mode: "IDLE".to_string(),
-            cargo_status: "EMPTY".to_string(),
-            current_position: "kitchen".to_string(),
-            last_node: None,
-            target_node: None,
-            gyroscope: None,
-            last_read_uuid: None,
-            lux: None,
-            infrared: None,
-            voltage_v: None,
-            current_a: None,
-            power_w: None,
-        });
-    }
-    {
-        let mut queue = app.state.robot_state.queue.write().await;
-        queue.push_back(backend::robot::models::QueuedRoute {
-            id: uuid::Uuid::new_v4(),
-            start: "home".to_string(),
-            destination: "office".to_string(),
-            added_at: chrono::Utc::now(),
-            added_by: "test".to_string(),
-        });
-    }
-
-    backend::robot::process_queue(&app.state).await;
-
-    let queue = app.state.robot_state.queue.read().await;
-    assert_eq!(
-        queue.len(),
-        1,
-        "Queue should stay untouched without control channel"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 12. Process queue skips when robot is stale/disconnected
+// 11. Process queue skips when robot is stale/disconnected
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_process_queue_skipped_when_robot_stale() {
@@ -664,7 +567,7 @@ async fn test_process_queue_skipped_when_robot_stale() {
 }
 
 // ---------------------------------------------------------------------------
-// 13. clear_expired_lock clears expired lock and returns true
+// 12. clear_expired_lock clears expired lock and returns true
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_clear_expired_lock() {
@@ -691,7 +594,7 @@ async fn test_clear_expired_lock() {
 }
 
 // ---------------------------------------------------------------------------
-// 14. clear_expired_lock does NOT clear active lock
+// 13. clear_expired_lock does NOT clear active lock
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_clear_expired_lock_preserves_active() {
@@ -714,7 +617,7 @@ async fn test_clear_expired_lock_preserves_active() {
 }
 
 // ---------------------------------------------------------------------------
-// 15. is_robot_connected returns false when no updates
+// 14. is_robot_connected returns false when no updates
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_is_robot_connected_false_when_no_updates() {
@@ -723,7 +626,7 @@ async fn test_is_robot_connected_false_when_no_updates() {
 }
 
 // ---------------------------------------------------------------------------
-// 16. is_robot_connected returns true after fresh update
+// 15. is_robot_connected returns true after fresh update
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_is_robot_connected_true_after_fresh_update() {
@@ -736,7 +639,7 @@ async fn test_is_robot_connected_true_after_fresh_update() {
 }
 
 // ---------------------------------------------------------------------------
-// 17. is_robot_connected returns false when stale
+// 16. is_robot_connected returns false when stale
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_is_robot_connected_false_when_stale() {
@@ -749,75 +652,7 @@ async fn test_is_robot_connected_false_when_stale() {
 }
 
 // ---------------------------------------------------------------------------
-// 17. Control channel registration is tracked independently
-// ---------------------------------------------------------------------------
-#[tokio::test]
-async fn test_control_channel_connection_tracking() {
-    let robot_state = backend::SharedRobotState::new();
-
-    assert!(!robot_state.is_control_channel_connected());
-
-    robot_state.register_control_channel_connection();
-    assert!(robot_state.is_control_channel_connected());
-
-    robot_state.unregister_control_channel_connection();
-    assert!(!robot_state.is_control_channel_connected());
-}
-
-// ---------------------------------------------------------------------------
-// 18. Acquire lock fails without control channel
-// ---------------------------------------------------------------------------
-#[tokio::test]
-async fn test_acquire_lock_requires_control_channel() {
-    let app = match common::setup_test_app().await {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("Skipping: {e}");
-            return;
-        }
-    };
-
-    {
-        let mut last_update = app.state.robot_state.last_state_update.write().await;
-        *last_update = Some(chrono::Utc::now());
-    }
-
-    let auth = auth_header_for(
-        "66666666-6666-6666-6666-666666666666",
-        "No Channel User",
-        "Operator",
-    );
-
-    let response = app
-        .router
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/drive/lock")
-                .method("POST")
-                .header("Authorization", &auth)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(result["status"], "error");
-    assert!(
-        result["message"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("control channel"),
-        "Expected control-channel error, got: {result:?}"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 19. Robot state update records last_state_update timestamp
+// 17. Robot state update records last_state_update timestamp
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_robot_state_update_records_timestamp() {
@@ -872,7 +707,7 @@ async fn test_robot_state_update_records_timestamp() {
 }
 
 // ---------------------------------------------------------------------------
-// 20. Active route clears when robot reports IDLE
+// 18. Active route clears when robot reports IDLE
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_active_route_clears_on_idle() {

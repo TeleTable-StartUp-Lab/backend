@@ -132,7 +132,6 @@ pub struct RobotStatusUpdate {
     pub last_route: Option<LastRoute>,
     pub manual_lock_holder_name: Option<String>,
     pub robot_connected: bool,
-    pub control_channel_connected: bool,
     pub nodes: Vec<RobotNode>,
 }
 
@@ -205,7 +204,6 @@ pub struct RobotDebugConnection {
     pub robot_url: Option<String>,
     pub last_state_update: Option<DateTime<Utc>>,
     pub robot_status_reachable: bool,
-    pub control_channel_connected: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

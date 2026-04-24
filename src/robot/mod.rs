@@ -24,7 +24,6 @@ pub async fn build_status_update(state: &Arc<AppState>) -> RobotStatusUpdate {
     let robot_state = state.robot_state.current_state.read().await;
     let lock_state = state.robot_state.manual_lock.read().await;
     let robot_connected = state.robot_state.is_robot_connected().await;
-    let control_channel_connected = state.robot_state.is_control_channel_connected();
 
     let (system_health, battery_level, drive_mode, cargo_status, position, last_route) =
         if let Some(rs) = &*robot_state {
@@ -70,7 +69,6 @@ pub async fn build_status_update(state: &Arc<AppState>) -> RobotStatusUpdate {
         last_route,
         manual_lock_holder_name,
         robot_connected,
-        control_channel_connected,
         nodes,
     }
 }
@@ -144,7 +142,6 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
     let nodes = state.static_nodes.clone();
     let robot_status = fetch_robot_status(state, robot_url.as_deref()).await;
     let robot_status_reachable = robot_status.is_some();
-    let control_channel_connected = state.robot_state.is_control_channel_connected();
     let now = chrono::Utc::now();
 
     let (system_health, battery_level, drive_mode, cargo_status, position, last_route) =
@@ -348,7 +345,6 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
             robot_url,
             last_state_update,
             robot_status_reachable,
-            control_channel_connected,
         },
         sensors: RobotDebugSensors {
             light: light_sensor,
@@ -373,10 +369,6 @@ pub async fn process_queue(state: &Arc<AppState>) {
 
     // 2. Don't process queue if robot is disconnected/stale
     if !state.robot_state.is_robot_connected().await {
-        return;
-    }
-
-    if !state.robot_state.is_control_channel_connected() {
         return;
     }
 

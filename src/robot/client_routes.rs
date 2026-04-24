@@ -17,28 +17,11 @@ use axum::{
 };
 
 use chrono::Utc;
-use futures::{sink::SinkExt, stream::StreamExt};
+use futures::stream::StreamExt;
 use serde::Deserialize;
 use serde::Serialize;
 use std::sync::Arc;
-use tokio::time::{self, Duration, MissedTickBehavior};
 use uuid::Uuid;
-
-const ROBOT_CONTROL_HEARTBEAT_INTERVAL_SECS: u64 = 10;
-
-async fn emit_runtime_warning(state: &Arc<AppState>, message: impl Into<String>) {
-    let message = message.into();
-    tracing::warn!("{message}");
-    let _ = state
-        .robot_state
-        .notification_sender
-        .send(RobotNotification {
-            id: Uuid::new_v4(),
-            priority: "WARN".to_string(),
-            message,
-            received_at: Utc::now(),
-        });
-}
 
 pub async fn robot_control_ws(
     ws: WebSocketUpgrade,
@@ -47,65 +30,16 @@ pub async fn robot_control_ws(
     ws.on_upgrade(|socket| handle_robot_socket(socket, state))
 }
 
-async fn handle_robot_socket(socket: WebSocket, state: Arc<AppState>) {
+async fn handle_robot_socket(mut socket: WebSocket, state: Arc<AppState>) {
     let mut rx = state.robot_state.command_sender.subscribe();
-    let (mut sender, mut receiver) = socket.split();
-    let mut heartbeat = time::interval(Duration::from_secs(ROBOT_CONTROL_HEARTBEAT_INTERVAL_SECS));
-    heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-    state.robot_state.register_control_channel_connection();
-    crate::robot::broadcast_status_update(&state).await;
-
-    loop {
-        tokio::select! {
-            command = rx.recv() => {
-                match command {
-                    Ok(cmd) => {
-                        let msg = match serde_json::to_string(&cmd) {
-                            Ok(msg) => msg,
-                            Err(error) => {
-                                tracing::error!(error = %error, "Failed to serialize robot command");
-                                continue;
-                            }
-                        };
-
-                        if sender.send(Message::Text(msg.into())).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                        tracing::warn!(skipped, "Robot control channel lagged behind command stream");
-                        continue;
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                }
-            }
-            incoming = receiver.next() => {
-                match incoming {
-                    Some(Ok(Message::Ping(payload))) => {
-                        if sender.send(Message::Pong(payload)).await.is_err() {
-                            break;
-                        }
-                    }
-                    Some(Ok(Message::Close(_))) => break,
-                    Some(Ok(_)) => continue,
-                    Some(Err(error)) => {
-                        tracing::warn!(error = %error, "Robot control socket receive error");
-                        break;
-                    }
-                    None => break,
-                }
-            }
-            _ = heartbeat.tick() => {
-                if sender.send(Message::Ping(Vec::new().into())).await.is_err() {
-                    break;
-                }
+    while let Ok(cmd) = rx.recv().await {
+        if let Ok(msg) = serde_json::to_string(&cmd) {
+            if socket.send(Message::Text(msg.into())).await.is_err() {
+                break;
             }
         }
     }
-
-    state.robot_state.unregister_control_channel_connection();
-    crate::robot::broadcast_status_update(&state).await;
 }
 
 #[derive(Deserialize)]
@@ -240,18 +174,6 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                 continue;
             }
 
-            if !state.robot_state.is_control_channel_connected() {
-                emit_runtime_warning(
-                    &state,
-                    format!(
-                        "Rejected manual command from {} because robot control channel is disconnected",
-                        claims.name
-                    ),
-                )
-                .await;
-                continue;
-            }
-
             // 2. Admin Preemption & Logic
             if is_admin {
                 // Admin can do anything
@@ -304,14 +226,7 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                 }
 
                 // Execute Admin Command
-                if state.robot_state.command_sender.send(cmd).is_err() {
-                    emit_runtime_warning(
-                        &state,
-                        "Failed to send admin command because robot control channel has no receivers",
-                    )
-                    .await;
-                    break;
-                }
+                let _ = state.robot_state.command_sender.send(cmd);
                 if debug_changed {
                     crate::robot::broadcast_status_update(&state).await;
                 }
@@ -330,14 +245,7 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                 };
 
                 if is_valid_holder {
-                    if state.robot_state.command_sender.send(cmd).is_err() {
-                        emit_runtime_warning(
-                            &state,
-                            "Failed to send manual drive command because robot control channel has no receivers",
-                        )
-                        .await;
-                        break;
-                    }
+                    let _ = state.robot_state.command_sender.send(cmd);
                 }
             }
         }
@@ -447,14 +355,6 @@ pub async fn acquire_lock(
         return Json(serde_json::json!({
             "status": "error",
             "message": "Cannot acquire lock because robot is not connected"
-        }))
-        .into_response();
-    }
-
-    if !state.robot_state.is_control_channel_connected() {
-        return Json(serde_json::json!({
-            "status": "error",
-            "message": "Cannot acquire lock because robot control channel is not connected"
         }))
         .into_response();
     }
