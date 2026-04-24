@@ -3,8 +3,7 @@ use crate::auth::roles;
 use crate::auth::security::decode_jwt;
 use crate::notifications::models::RobotNotification;
 use crate::robot::models::{
-    NodesResponse, QueuedRoute, RobotCommand, RobotDebugSnapshot, RobotStatusUpdate,
-    RouteSelectionRequest,
+    NodesResponse, QueuedRoute, RobotCommand, RobotStatusUpdate, RouteSelectionRequest,
 };
 use crate::AppState;
 use axum::{
@@ -86,14 +85,11 @@ pub async fn robot_events_ws(
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    let is_admin = roles::is_admin(&claims.role);
-
-    ws.on_upgrade(move |socket| handle_events_socket(socket, state, is_admin))
+    ws.on_upgrade(move |socket| handle_events_socket(socket, state))
 }
 
-async fn handle_events_socket(mut socket: WebSocket, state: Arc<AppState>, is_admin: bool) {
+async fn handle_events_socket(mut socket: WebSocket, state: Arc<AppState>) {
     let mut status_rx = state.robot_state.status_sender.subscribe();
-    let mut debug_rx = is_admin.then(|| state.robot_state.debug_sender.subscribe());
     let mut notification_rx = state.robot_state.notification_sender.subscribe();
 
     let initial_status = crate::robot::build_status_update(&state).await;
@@ -104,19 +100,6 @@ async fn handle_events_socket(mut socket: WebSocket, state: Arc<AppState>, is_ad
     if let Ok(msg) = serde_json::to_string(&initial_status_event) {
         if socket.send(Message::Text(msg.into())).await.is_err() {
             return;
-        }
-    }
-
-    if debug_rx.is_some() {
-        let initial_debug = crate::robot::build_debug_snapshot(&state).await;
-        let initial_debug_event = WsDebugSnapshotEvent {
-            event: "debug_snapshot",
-            data: initial_debug,
-        };
-        if let Ok(msg) = serde_json::to_string(&initial_debug_event) {
-            if socket.send(Message::Text(msg.into())).await.is_err() {
-                return;
-            }
         }
     }
 
@@ -156,25 +139,6 @@ async fn handle_events_socket(mut socket: WebSocket, state: Arc<AppState>, is_ad
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                }
-            }
-            debug_snapshot = async {
-                match debug_rx.as_mut() {
-                    Some(rx) => rx.recv().await.ok(),
-                    None => None,
-                }
-            }, if is_admin => {
-                if let Some(debug_snapshot) = debug_snapshot {
-                    let envelope = WsDebugSnapshotEvent {
-                        event: "debug_snapshot",
-                        data: debug_snapshot,
-                    };
-
-                    if let Ok(msg) = serde_json::to_string(&envelope) {
-                        if socket.send(Message::Text(msg.into())).await.is_err() {
-                            break;
-                        }
-                    }
                 }
             }
         }
@@ -298,12 +262,6 @@ struct WsNotificationEvent {
 struct WsStatusUpdateEvent {
     event: &'static str,
     data: RobotStatusUpdate,
-}
-
-#[derive(Serialize)]
-struct WsDebugSnapshotEvent {
-    event: &'static str,
-    data: RobotDebugSnapshot,
 }
 
 pub async fn get_nodes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
