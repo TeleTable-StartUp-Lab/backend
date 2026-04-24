@@ -71,9 +71,9 @@ Expected camelCase JSON:
   "batteryLevel": 85,
   "driveMode": "IDLE",
   "cargoStatus": "EMPTY",
-  "currentPosition": "Home",
-  "lastNode": "Home",
-  "targetNode": "Kitchen",
+  "currentPosition": "home",
+  "lastNode": "home",
+  "targetNode": "kitchen",
   "gyroscope": {
     "xDps": 0.3,
     "yDps": -0.1,
@@ -98,9 +98,9 @@ Fields:
 - `batteryLevel` (`number`, required): battery percentage from `0` to `100`.
 - `driveMode` (`string`, required): backend-visible robot mode such as `IDLE`, `MANUAL`, or `AUTO`.
 - `cargoStatus` (`string`, required): current cargo/load state string.
-- `currentPosition` (`string`, required): current robot position or location label.
-- `lastNode` (`string`, optional): previously visited node for the active or last route.
-- `targetNode` (`string`, optional): destination node for the active or last route.
+- `currentPosition` (`string`, required): current robot position as stable node ID.
+- `lastNode` (`string`, optional): previously visited node as stable node ID.
+- `targetNode` (`string`, optional): destination node as stable node ID.
 - `gyroscope` (`object`, optional): angular velocity readings in degrees per second.
 - `gyroscope.xDps` (`number`, optional): X-axis angular velocity.
 - `gyroscope.yDps` (`number`, optional): Y-axis angular velocity.
@@ -128,7 +128,7 @@ Expected JSON:
 ```json
 {
   "priority": "INFO",
-  "message": "Route started: Home -> Kitchen"
+  "message": "Route started: home -> kitchen"
 }
 ```
 
@@ -159,6 +159,12 @@ Tagged JSON with `command`:
 - `LED`
 - `AUDIO_BEEP`
 - `AUDIO_VOLUME`
+
+Example:
+
+```json
+{ "command": "NAVIGATE", "start": "home", "destination": "office" }
+```
 
 ## Robot-to-backend endpoints
 
@@ -245,7 +251,12 @@ Behavior:
 Returns:
 
 ```json
-{ "nodes": ["Home", "Kitchen"] }
+{
+  "nodes": [
+    { "id": "home", "label": "Home" },
+    { "id": "kitchen", "label": "Kitchen" }
+  ]
+}
 ```
 
 ## `POST /routes/select`
@@ -253,7 +264,7 @@ Returns:
 Request:
 
 ```json
-{ "start": "Home", "destination": "Kitchen" }
+{ "start": "home", "destination": "kitchen" }
 ```
 
 Behavior:
@@ -293,8 +304,8 @@ Example:
 [
   {
     "id": "uuid",
-    "start": "Home",
-    "destination": "Kitchen",
+    "start": "home",
+    "destination": "kitchen",
     "added_at": "2026-03-26T12:34:56Z",
     "added_by": "Admin User"
   }
@@ -365,8 +376,8 @@ Returns:
     "batteryLevel": 82,
     "driveMode": "IDLE",
     "cargoStatus": "EMPTY",
-    "position": "Home",
-    "lastRoute": { "start_node": "Home", "end_node": "Kitchen" },
+    "position": "home",
+    "lastRoute": { "start_node": "home", "end_node": "kitchen" },
     "robotConnected": true
   },
   "lock": {
@@ -378,7 +389,11 @@ Returns:
     "activeRoute": null,
     "queue": [],
     "queueLength": 0,
-    "nodes": ["Home", "Kitchen", "Office"]
+    "nodes": [
+      { "id": "home", "label": "Home" },
+      { "id": "kitchen", "label": "Kitchen" },
+      { "id": "office", "label": "Office" }
+    ]
   },
   "connection": {
     "robotUrl": "http://robot.local:8000",
@@ -492,11 +507,15 @@ Behavior:
     "batteryLevel": 82,
     "driveMode": "IDLE",
     "cargoStatus": "EMPTY",
-    "position": "Home",
-    "lastRoute": { "start_node": "Home", "end_node": "Kitchen" },
+    "position": "home",
+    "lastRoute": { "start_node": "home", "end_node": "kitchen" },
     "manualLockHolderName": null,
     "robotConnected": true,
-    "nodes": ["Home", "Kitchen", "Office"]
+    "nodes": [
+      { "id": "home", "label": "Home" },
+      { "id": "kitchen", "label": "Kitchen" },
+      { "id": "office", "label": "Office" }
+    ]
   }
 }
 ```

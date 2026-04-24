@@ -67,9 +67,12 @@ async fn test_get_nodes_returns_static_app_state_nodes() {
         .await
         .unwrap();
     let nodes: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(nodes["nodes"][0], "Home");
-    assert_eq!(nodes["nodes"][1], "Kitchen");
-    assert_eq!(nodes["nodes"][2], "Office");
+    assert_eq!(nodes["nodes"][0]["id"], "home");
+    assert_eq!(nodes["nodes"][0]["label"], "Home");
+    assert_eq!(nodes["nodes"][1]["id"], "kitchen");
+    assert_eq!(nodes["nodes"][1]["label"], "Kitchen");
+    assert_eq!(nodes["nodes"][2]["id"], "office");
+    assert_eq!(nodes["nodes"][2]["label"], "Office");
 }
 
 #[tokio::test]

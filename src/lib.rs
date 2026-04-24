@@ -27,7 +27,7 @@ pub struct AppState {
     pub redis: ConnectionManager,
     pub config: Config,
     pub robot_state: SharedRobotState,
-    pub static_nodes: Vec<String>,
+    pub static_nodes: Vec<robot::models::RobotNode>,
     pub http_client: reqwest::Client,
 }
 

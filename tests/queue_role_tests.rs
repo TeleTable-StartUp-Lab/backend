@@ -24,8 +24,8 @@ async fn test_admin_can_manage_queue() {
 
     // 2. Add Route to Queue (POST /routes)
     let payload = serde_json::json!({
-        "start": "Home",
-        "destination": "Kitchen"
+        "start": "home",
+        "destination": "kitchen"
     });
 
     let response = app
@@ -51,8 +51,8 @@ async fn test_admin_can_manage_queue() {
     let queued_route: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let route_id = queued_route["id"].as_str().unwrap();
 
-    assert_eq!(queued_route["start"], "Home");
-    assert_eq!(queued_route["destination"], "Kitchen");
+    assert_eq!(queued_route["start"], "home");
+    assert_eq!(queued_route["destination"], "kitchen");
     assert_eq!(queued_route["added_by"], "Admin User");
 
     // 3. Verify Queue Contains Route (GET /routes)
@@ -134,8 +134,8 @@ async fn test_operator_cannot_manage_queue() {
 
     // Try to Add Route
     let payload = serde_json::json!({
-        "start": "Home",
-        "destination": "Kitchen"
+        "start": "home",
+        "destination": "kitchen"
     });
 
     let response = app

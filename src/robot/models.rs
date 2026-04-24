@@ -83,6 +83,12 @@ impl RobotEventPriority {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct RobotNode {
+    pub id: String,
+    pub label: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "command")]
 pub enum RobotCommand {
@@ -126,7 +132,7 @@ pub struct RobotStatusUpdate {
     pub last_route: Option<LastRoute>,
     pub manual_lock_holder_name: Option<String>,
     pub robot_connected: bool,
-    pub nodes: Vec<String>,
+    pub nodes: Vec<RobotNode>,
 }
 
 #[derive(Debug, Serialize)]
@@ -144,7 +150,7 @@ pub struct StatusResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NodesResponse {
-    pub nodes: Vec<String>,
+    pub nodes: Vec<RobotNode>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -189,7 +195,7 @@ pub struct RobotDebugRouting {
     pub active_route: Option<QueuedRoute>,
     pub queue: Vec<QueuedRoute>,
     pub queue_length: usize,
-    pub nodes: Vec<String>,
+    pub nodes: Vec<RobotNode>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

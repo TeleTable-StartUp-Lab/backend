@@ -52,9 +52,18 @@ pub async fn spawn_app(pool: PgPool) -> Result<TestApp, String> {
         config,
         robot_state: robot_state.clone(),
         static_nodes: vec![
-            "Home".to_string(),
-            "Kitchen".to_string(),
-            "Office".to_string(),
+            backend::robot::models::RobotNode {
+                id: "home".to_string(),
+                label: "Home".to_string(),
+            },
+            backend::robot::models::RobotNode {
+                id: "kitchen".to_string(),
+                label: "Kitchen".to_string(),
+            },
+            backend::robot::models::RobotNode {
+                id: "office".to_string(),
+                label: "Office".to_string(),
+            },
         ],
         http_client,
     });

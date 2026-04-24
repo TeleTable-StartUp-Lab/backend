@@ -32,16 +32,16 @@ fn test_robot_state_contract() {
 fn test_robot_command_serialization() {
     // 1. Create Backend Command
     let cmd = RobotCommand::Navigate {
-        start: "Home".to_string(),
-        destination: "Office".to_string(),
+        start: "home".to_string(),
+        destination: "office".to_string(),
     };
 
     // 2. Serialize
     let json_val = serde_json::to_value(&cmd).expect("Failed to serialize");
 
     // 3. Verify Contract
-    // #[serde(tag = "command")] implies {"command": "NAVIGATE", "start": "Home", "destination": "Office"}
+    // #[serde(tag = "command")] implies {"command": "NAVIGATE", "start": "home", "destination": "office"}
     assert_eq!(json_val["command"], "NAVIGATE");
-    assert_eq!(json_val["start"], "Home");
-    assert_eq!(json_val["destination"], "Office");
+    assert_eq!(json_val["start"], "home");
+    assert_eq!(json_val["destination"], "office");
 }
