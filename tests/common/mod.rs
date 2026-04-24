@@ -51,6 +51,11 @@ pub async fn spawn_app(pool: PgPool) -> Result<TestApp, String> {
         redis,
         config,
         robot_state: robot_state.clone(),
+        static_nodes: vec![
+            "Home".to_string(),
+            "Kitchen".to_string(),
+            "Office".to_string(),
+        ],
         http_client,
     });
 

@@ -265,66 +265,11 @@ struct WsStatusUpdateEvent {
 }
 
 pub async fn get_nodes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    // Check Redis cache first
-    let mut redis = state.redis.clone();
-    if let Ok(Some(nodes)) = crate::cache::CacheService::get_nodes(&mut redis).await {
-        return (StatusCode::OK, Json(NodesResponse { nodes })).into_response();
-    }
-
-    // Check in-memory cache
-    if let Some(nodes) = &*state.robot_state.cached_nodes.read().await {
-        // Update Redis cache
-        let _ = crate::cache::CacheService::cache_nodes(&mut redis, nodes).await;
-        return (
-            StatusCode::OK,
-            Json(NodesResponse {
-                nodes: nodes.clone(),
-            }),
-        )
-            .into_response();
-    }
-
-    // Attempt to fetch from robot
-    let robot_url = state.robot_state.robot_url.read().await;
-    if let Some(url) = &*robot_url {
-        match state.http_client.get(format!("{url}/nodes")).send().await {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    // Assume robot returns { "nodes": ["Node1", "Node2"] }
-                    if let Ok(nodes_resp) = resp.json::<NodesResponse>().await {
-                        // Cache it in both places
-                        let mut cache = state.robot_state.cached_nodes.write().await;
-                        *cache = Some(nodes_resp.nodes.clone());
-                        let _ =
-                            crate::cache::CacheService::cache_nodes(&mut redis, &nodes_resp.nodes)
-                                .await;
-                        drop(cache);
-                        crate::robot::broadcast_status_update(&state).await;
-
-                        return (StatusCode::OK, Json(nodes_resp)).into_response();
-                    }
-                } else {
-                    tracing::warn!(
-                        endpoint      = %format!("{url}/nodes"),
-                        status_code   = resp.status().as_u16(),
-                        "External API failure - robot /nodes returned non-success status"
-                    );
-                }
-            }
-            Err(e) => {
-                tracing::error!(
-                    endpoint = %format!("{url}/nodes"),
-                    error    = %e,
-                    "External API failure - could not reach robot /nodes"
-                );
-            }
-        }
-    }
-
-    // Fallback if no robot or fetch failed
     (
-        StatusCode::SERVICE_UNAVAILABLE,
-        Json(NodesResponse { nodes: vec![] }),
+        StatusCode::OK,
+        Json(NodesResponse {
+            nodes: state.static_nodes.clone(),
+        }),
     )
         .into_response()
 }

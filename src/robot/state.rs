@@ -19,7 +19,6 @@ pub struct SharedRobotState {
     pub status_sender: broadcast::Sender<RobotStatusUpdate>,
     pub notification_sender: broadcast::Sender<RobotNotification>,
     pub robot_url: Arc<RwLock<Option<String>>>,
-    pub cached_nodes: Arc<RwLock<Option<Vec<String>>>>,
     pub queue: Arc<RwLock<VecDeque<QueuedRoute>>>,
     pub active_route: Arc<RwLock<Option<QueuedRoute>>>,
 }
@@ -43,7 +42,6 @@ impl SharedRobotState {
             command_sender: command_tx,
             status_sender: status_tx,
             notification_sender: notification_tx,
-            cached_nodes: Arc::new(RwLock::new(None)),
             robot_url: Arc::new(RwLock::new(None)),
             queue: Arc::new(RwLock::new(VecDeque::new())),
             active_route: Arc::new(RwLock::new(None)),

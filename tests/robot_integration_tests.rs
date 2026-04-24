@@ -33,48 +33,20 @@ async fn insert_test_user(
 }
 
 #[tokio::test]
-async fn test_get_nodes_proxies_to_robot() {
-    // 1. Setup
+async fn test_get_nodes_returns_static_app_state_nodes() {
     let app = match common::setup_test_app().await {
         Ok(app) => app,
         Err(e) => {
-            eprintln!("Skipping test_get_nodes_proxies_to_robot: {e}");
+            eprintln!("Skipping test_get_nodes_returns_static_app_state_nodes: {e}");
             return;
         }
     };
-
-    // Mock Key for this to work - we need to authenticate as user first
-    // Skipping user auth setup for brevity or adding a helper?
-    // The route /nodes is protected.
-    // Let's create a helper "create_authenticated_request".
-    // Alternatively, I'll allow /nodes to be public? No, it's protected.
-
-    // Stub auth: We can mock the JWT secret or just create a valid token since we have the secret.
-    // The test app uses "test_secret".
 
     let token =
         backend::auth::security::create_jwt("user_id", "Test User", "user", "test_secret", 1)
             .unwrap();
     let auth_header = format!("Bearer {token}");
 
-    // Mock Robot Server
-    let mock_server = MockServer::start().await;
-
-    // Update app state to point to mock robot
-    {
-        let mut url_lock = app.state.robot_state.robot_url.write().await;
-        *url_lock = Some(mock_server.uri());
-    }
-
-    Mock::given(method("GET"))
-        .and(path("/nodes"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-             "nodes": ["Kitchen", "LivingRoom"]
-        })))
-        .mount(&mock_server)
-        .await;
-
-    // 2. Execute
     let response = app
         .router
         .clone()
@@ -89,15 +61,15 @@ async fn test_get_nodes_proxies_to_robot() {
         .await
         .unwrap();
 
-    // 3. Assert
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
     let nodes: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(nodes["nodes"][0], "Kitchen");
-    assert_eq!(nodes["nodes"][1], "LivingRoom");
+    assert_eq!(nodes["nodes"][0], "Home");
+    assert_eq!(nodes["nodes"][1], "Kitchen");
+    assert_eq!(nodes["nodes"][2], "Office");
 }
 
 #[tokio::test]

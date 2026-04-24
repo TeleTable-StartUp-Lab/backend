@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 const USER_CACHE_TTL: u64 = 300; // 5 minutes
 const JWT_CACHE_TTL: u64 = 3600; // 1 hour
 const DIARY_CACHE_TTL: u64 = 60; // 1 minute
-const NODES_CACHE_TTL: u64 = 600; // 10 minutes
 
 pub struct CacheService;
 
@@ -123,24 +122,5 @@ impl CacheService {
             redis.del::<_, ()>(keys).await?;
         }
         Ok(())
-    }
-
-    /// Cache robot nodes
-    pub async fn cache_nodes(
-        redis: &mut ConnectionManager,
-        nodes: &[String],
-    ) -> Result<(), redis::RedisError> {
-        let key = "robot:nodes";
-        let value = serde_json::to_string(nodes).unwrap_or_default();
-        redis.set_ex(key, value, NODES_CACHE_TTL).await
-    }
-
-    /// Get cached nodes
-    pub async fn get_nodes(
-        redis: &mut ConnectionManager,
-    ) -> Result<Option<Vec<String>>, redis::RedisError> {
-        let key = "robot:nodes";
-        let value: Option<String> = redis.get(key).await?;
-        Ok(value.and_then(|v| serde_json::from_str(&v).ok()))
     }
 }

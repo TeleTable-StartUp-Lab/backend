@@ -10,7 +10,7 @@ This document describes the current robot-related HTTP and WebSocket API impleme
 | POST     | `/table/register`              | None         | Register robot URL with backend (robot -> backend) |
 | POST     | `/table/state`                 | `X-Api-Key`  | Robot telemetry update (robot -> backend) |
 | POST     | `/table/event`                 | `X-Api-Key`  | Robot notification event (robot -> backend) |
-| GET      | `/nodes`                       | JWT (Bearer) | Get robot nodes (cached; fetched from registered robot HTTP server) |
+| GET      | `/nodes`                       | JWT (Bearer) | Get static navigation nodes from backend app state |
 | GET      | `/routes`                      | JWT (Bearer) | Get current route queue |
 | POST     | `/routes`                      | JWT (Admin)  | Add route to queue |
 | DELETE   | `/routes/{id}`                 | JWT (Admin)  | Remove route from queue |
@@ -19,6 +19,7 @@ This document describes the current robot-related HTTP and WebSocket API impleme
 | POST     | `/drive/lock`                  | JWT (Bearer) | Acquire manual drive lock (30s expiry set on acquire) |
 | DELETE   | `/drive/lock`                  | JWT (Bearer) | Release manual drive lock (only holder can release) |
 | GET      | `/robot/check`                 | JWT (Bearer) | Probe registered robot via `GET {robot_url}/health` |
+| GET      | `/robot/debug`                 | JWT (Admin)  | Get admin debug snapshot for dashboard polling |
 | GET      | `/robot/notifications`         | JWT (Viewer+) | Get persisted robot notification history |
 | GET (WS) | `/ws/drive/manual?token=<jwt>` | JWT in query | Manual control command socket (input only) |
 | GET (WS) | `/ws/robot/events?token=<jwt>` | JWT in query | Status + notification event socket (output only) |
@@ -31,6 +32,7 @@ The old polling status endpoint was removed.
 - Status is pushed as WebSocket events on `/ws/robot/events`.
 - Notification events are also pushed on `/ws/robot/events`.
 - Manual control on `/ws/drive/manual` is command input only.
+- Admin debug snapshots are fetched over HTTP from `GET /robot/debug`; the dashboard polls while the debug panel is open.
 
 ## In-memory robot state
 
@@ -39,7 +41,7 @@ The backend maintains `SharedRobotState` with:
 - `current_state`: last telemetry (`RobotState`)
 - `last_state_update`: time of latest `/table/state`
 - `robot_url`: discovered robot base URL (from `/table/register`)
-- `cached_nodes`: cached robot nodes
+- `static_nodes`: predefined navigation nodes stored in app state
 - `manual_lock`: lock holder and expiry
 - `command_sender`: broadcast channel for `RobotCommand` (used by `/ws/robot/control`)
 - `status_sender`: broadcast channel for `status_update` events
@@ -237,9 +239,8 @@ Response:
 
 Behavior:
 
-- checks Redis cache first
-- then in-memory cache
-- then robot `GET {robot_url}/nodes`
+- returns the static node list stored in backend app state
+- does not query Redis or the robot
 
 Returns:
 
@@ -341,6 +342,58 @@ Behavior:
 
 - checks staleness first
 - if connected, probes `GET {robot_url}/health`
+
+## `GET /robot/debug`
+
+Auth:
+
+- Admin only
+
+Behavior:
+
+- builds an admin-only debug snapshot from backend in-memory state
+- enriches sensor fields with robot `GET {robot_url}/status` when reachable
+- uses the same static node list returned by `GET /nodes`
+- intended for HTTP polling by the dashboard while the debug modal is open
+
+Returns:
+
+```json
+{
+  "telemetry": {
+    "systemHealth": "OK",
+    "batteryLevel": 82,
+    "driveMode": "IDLE",
+    "cargoStatus": "EMPTY",
+    "position": "Home",
+    "lastRoute": { "start_node": "Home", "end_node": "Kitchen" },
+    "robotConnected": true
+  },
+  "lock": {
+    "holderName": null,
+    "active": false,
+    "expiresAt": null
+  },
+  "routing": {
+    "activeRoute": null,
+    "queue": [],
+    "queueLength": 0,
+    "nodes": ["Home", "Kitchen", "Office"]
+  },
+  "connection": {
+    "robotUrl": "http://robot.local:8000",
+    "lastStateUpdate": "2026-03-26T13:05:00Z",
+    "robotStatusReachable": true
+  },
+  "sensors": {
+    "light": { "lux": 124.5, "valid": true, "source": "robot_status_http" },
+    "infrared": { "front": false, "left": true, "right": true, "source": "robot_status_http" },
+    "power": { "voltageV": 12.4, "currentA": 1.6, "powerW": 19.8, "source": "robot_status_http" },
+    "gyroscope": { "xDps": null, "yDps": null, "zDps": null, "source": "unavailable" },
+    "rfid": { "lastReadUuid": null, "source": "unavailable" }
+  }
+}
+```
 
 ## `GET /robot/notifications`
 

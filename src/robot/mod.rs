@@ -18,7 +18,6 @@ use std::time::Duration;
 const SENSOR_SOURCE_ROBOT_STATUS_HTTP: &str = "robot_status_http";
 const SENSOR_SOURCE_TABLE_STATE: &str = "table_state";
 const SENSOR_SOURCE_UNAVAILABLE: &str = "unavailable";
-const ROBOT_NODES_TIMEOUT_SECS: u64 = 2;
 const ROBOT_STATUS_TIMEOUT_SECS: u64 = 2;
 
 pub async fn build_status_update(state: &Arc<AppState>) -> RobotStatusUpdate {
@@ -59,7 +58,7 @@ pub async fn build_status_update(state: &Arc<AppState>) -> RobotStatusUpdate {
         .filter(|l| l.expires_at > chrono::Utc::now())
         .map(|l| l.holder_name.clone());
 
-    let nodes = get_or_refresh_nodes(state).await;
+    let nodes = state.static_nodes.clone();
 
     RobotStatusUpdate {
         system_health,
@@ -140,10 +139,8 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
         .cloned()
         .collect::<Vec<_>>();
     let lock = state.robot_state.manual_lock.read().await.clone();
-    let (nodes, robot_status) = tokio::join!(
-        get_or_refresh_nodes(state),
-        fetch_robot_status(state, robot_url.as_deref())
-    );
+    let nodes = state.static_nodes.clone();
+    let robot_status = fetch_robot_status(state, robot_url.as_deref()).await;
     let robot_status_reachable = robot_status.is_some();
     let now = chrono::Utc::now();
 
@@ -357,57 +354,6 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
             rfid: rfid_sensor,
         },
     }
-}
-
-pub(crate) async fn get_or_refresh_nodes(state: &Arc<AppState>) -> Vec<String> {
-    if let Some(nodes) = &*state.robot_state.cached_nodes.read().await {
-        return nodes.clone();
-    }
-
-    let mut redis = state.redis.clone();
-    if let Ok(Some(nodes)) = crate::cache::CacheService::get_nodes(&mut redis).await {
-        let mut cache = state.robot_state.cached_nodes.write().await;
-        *cache = Some(nodes.clone());
-        return nodes;
-    }
-
-    let robot_url = state.robot_state.robot_url.read().await.clone();
-    if let Some(url) = robot_url {
-        let endpoint = format!("{url}/nodes");
-        match state
-            .http_client
-            .get(&endpoint)
-            .timeout(Duration::from_secs(ROBOT_NODES_TIMEOUT_SECS))
-            .send()
-            .await
-        {
-            Ok(resp) if resp.status().is_success() => {
-                if let Ok(nodes_resp) = resp.json::<models::NodesResponse>().await {
-                    let nodes = nodes_resp.nodes;
-                    let _ = crate::cache::CacheService::cache_nodes(&mut redis, &nodes).await;
-                    let mut cache = state.robot_state.cached_nodes.write().await;
-                    *cache = Some(nodes.clone());
-                    return nodes;
-                }
-            }
-            Ok(resp) => {
-                tracing::warn!(
-                    endpoint = %endpoint,
-                    status_code = resp.status().as_u16(),
-                    "External API failure - robot /nodes returned non-success status"
-                );
-            }
-            Err(error) => {
-                tracing::warn!(
-                    endpoint = %endpoint,
-                    error = %error,
-                    "External API failure - could not reach robot /nodes"
-                );
-            }
-        }
-    }
-
-    Vec::new()
 }
 
 pub async fn process_queue(state: &Arc<AppState>) {

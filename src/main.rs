@@ -3,6 +3,8 @@ use backend::{
 };
 use std::sync::Arc;
 
+const STATIC_ROUTE_NODES: &[&str] = &["Home", "Kitchen", "Office"];
+
 #[tokio::main]
 async fn main() {
     // Initialise logging first – guard must live for the entire process lifetime.
@@ -85,6 +87,7 @@ async fn main() {
         redis,
         config: config.clone(),
         robot_state: robot_state.clone(),
+        static_nodes: STATIC_ROUTE_NODES.iter().map(|node| (*node).to_string()).collect(),
         http_client,
     });
 
