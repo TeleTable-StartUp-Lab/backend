@@ -448,6 +448,14 @@ pub async fn acquire_lock(
 
     let is_admin = roles::is_admin(&claims.role);
 
+    if !state.robot_state.is_robot_connected().await {
+        return Json(serde_json::json!({
+            "status": "error",
+            "message": "Cannot acquire lock because robot is not connected"
+        }))
+        .into_response();
+    }
+
     // Check if queue is active
     if !is_admin && state.robot_state.active_route.read().await.is_some() {
         return Json(serde_json::json!({
