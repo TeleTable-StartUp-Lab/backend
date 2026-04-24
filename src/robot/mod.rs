@@ -125,8 +125,8 @@ async fn fetch_robot_status(
 }
 
 pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
-    let status_update = build_status_update(state).await;
     let current_state = state.robot_state.current_state.read().await.clone();
+    let robot_connected = state.robot_state.is_robot_connected().await;
     let last_state_update = *state.robot_state.last_state_update.read().await;
     let robot_url = state.robot_state.robot_url.read().await.clone();
     let active_route = state.robot_state.active_route.read().await.clone();
@@ -139,10 +139,40 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
         .cloned()
         .collect::<Vec<_>>();
     let lock = state.robot_state.manual_lock.read().await.clone();
-    let nodes = get_or_refresh_nodes(state).await;
-    let robot_status = fetch_robot_status(state, robot_url.as_deref()).await;
+    let (nodes, robot_status) = tokio::join!(
+        get_or_refresh_nodes(state),
+        fetch_robot_status(state, robot_url.as_deref())
+    );
     let robot_status_reachable = robot_status.is_some();
     let now = chrono::Utc::now();
+
+    let (system_health, battery_level, drive_mode, cargo_status, position, last_route) =
+        if let Some(rs) = &current_state {
+            (
+                rs.system_health.clone(),
+                rs.battery_level,
+                rs.drive_mode.clone(),
+                rs.cargo_status.clone(),
+                rs.current_position.clone(),
+                if let (Some(start), Some(end)) = (&rs.last_node, &rs.target_node) {
+                    Some(LastRoute {
+                        start_node: start.clone(),
+                        end_node: end.clone(),
+                    })
+                } else {
+                    None
+                },
+            )
+        } else {
+            (
+                "UNKNOWN".to_string(),
+                0,
+                "UNKNOWN".to_string(),
+                "UNKNOWN".to_string(),
+                "UNKNOWN".to_string(),
+                None,
+            )
+        };
 
     let (lock_active, holder_name, expires_at) = match lock {
         Some(lock_info) if lock_info.expires_at > now => (
@@ -294,13 +324,13 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
 
     RobotDebugSnapshot {
         telemetry: RobotDebugTelemetry {
-            system_health: status_update.system_health,
-            battery_level: status_update.battery_level,
-            drive_mode: status_update.drive_mode,
-            cargo_status: status_update.cargo_status,
-            position: status_update.position,
-            last_route: status_update.last_route,
-            robot_connected: status_update.robot_connected,
+            system_health,
+            battery_level,
+            drive_mode,
+            cargo_status,
+            position,
+            last_route,
+            robot_connected,
         },
         lock: RobotDebugLock {
             holder_name,
