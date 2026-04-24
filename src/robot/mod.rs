@@ -18,6 +18,7 @@ use std::time::Duration;
 const SENSOR_SOURCE_ROBOT_STATUS_HTTP: &str = "robot_status_http";
 const SENSOR_SOURCE_TABLE_STATE: &str = "table_state";
 const SENSOR_SOURCE_UNAVAILABLE: &str = "unavailable";
+const ROBOT_NODES_TIMEOUT_SECS: u64 = 2;
 const ROBOT_STATUS_TIMEOUT_SECS: u64 = 2;
 
 pub async fn build_status_update(state: &Arc<AppState>) -> RobotStatusUpdate {
@@ -372,8 +373,15 @@ pub(crate) async fn get_or_refresh_nodes(state: &Arc<AppState>) -> Vec<String> {
 
     let robot_url = state.robot_state.robot_url.read().await.clone();
     if let Some(url) = robot_url {
-        if let Ok(resp) = state.http_client.get(format!("{url}/nodes")).send().await {
-            if resp.status().is_success() {
+        let endpoint = format!("{url}/nodes");
+        match state
+            .http_client
+            .get(&endpoint)
+            .timeout(Duration::from_secs(ROBOT_NODES_TIMEOUT_SECS))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
                 if let Ok(nodes_resp) = resp.json::<models::NodesResponse>().await {
                     let nodes = nodes_resp.nodes;
                     let _ = crate::cache::CacheService::cache_nodes(&mut redis, &nodes).await;
@@ -381,6 +389,20 @@ pub(crate) async fn get_or_refresh_nodes(state: &Arc<AppState>) -> Vec<String> {
                     *cache = Some(nodes.clone());
                     return nodes;
                 }
+            }
+            Ok(resp) => {
+                tracing::warn!(
+                    endpoint = %endpoint,
+                    status_code = resp.status().as_u16(),
+                    "External API failure - robot /nodes returned non-success status"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    endpoint = %endpoint,
+                    error = %error,
+                    "External API failure - could not reach robot /nodes"
+                );
             }
         }
     }
