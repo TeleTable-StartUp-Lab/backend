@@ -19,6 +19,7 @@ use std::time::Duration;
 const SENSOR_SOURCE_ROBOT_STATUS_HTTP: &str = "robot_status_http";
 const SENSOR_SOURCE_TABLE_STATE: &str = "table_state";
 const SENSOR_SOURCE_UNAVAILABLE: &str = "unavailable";
+const ROBOT_STATUS_TIMEOUT_SECS: u64 = 2;
 
 pub async fn build_status_update(state: &Arc<AppState>) -> RobotStatusUpdate {
     let robot_state = state.robot_state.current_state.read().await;
@@ -103,11 +104,18 @@ async fn fetch_robot_status(
     robot_url: Option<&str>,
 ) -> Option<RobotStatusHttpResponse> {
     let url = robot_url?;
-    let response = match state.http_client.get(format!("{url}/status")).send().await {
+    let endpoint = format!("{url}/status");
+    let response = match state
+        .http_client
+        .get(&endpoint)
+        .timeout(Duration::from_secs(ROBOT_STATUS_TIMEOUT_SECS))
+        .send()
+        .await
+    {
         Ok(response) => response,
         Err(error) => {
             tracing::warn!(
-                endpoint = %format!("{url}/status"),
+                endpoint = %endpoint,
                 error = %error,
                 "External API failure - could not reach robot /status"
             );
@@ -117,7 +125,7 @@ async fn fetch_robot_status(
 
     if !response.status().is_success() {
         tracing::warn!(
-            endpoint = %format!("{url}/status"),
+            endpoint = %endpoint,
             status_code = response.status().as_u16(),
             "External API failure - robot /status returned non-success status"
         );
@@ -128,7 +136,7 @@ async fn fetch_robot_status(
         Ok(status) => Some(status),
         Err(error) => {
             tracing::warn!(
-                endpoint = %format!("{url}/status"),
+                endpoint = %endpoint,
                 error = %error,
                 "External API failure - robot /status returned invalid JSON"
             );
@@ -172,21 +180,21 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
     };
 
     let light_sensor = match (
+        current_state.as_ref().and_then(|state| state.lux),
         robot_status
             .as_ref()
             .and_then(|status| status.sensors.as_ref())
             .and_then(|sensors| sensors.light.as_ref()),
-        current_state.as_ref().and_then(|state| state.lux),
     ) {
-        (Some(light), _) => RobotDebugLightSensor {
-            lux: light.lux_valid.then_some(light.lux),
-            valid: light.lux_valid,
-            source: SENSOR_SOURCE_ROBOT_STATUS_HTTP.to_string(),
-        },
-        (None, Some(lux)) => RobotDebugLightSensor {
+        (Some(lux), _) => RobotDebugLightSensor {
             lux: Some(lux),
             valid: true,
             source: SENSOR_SOURCE_TABLE_STATE.to_string(),
+        },
+        (None, Some(light)) => RobotDebugLightSensor {
+            lux: light.lux_valid.then_some(light.lux),
+            valid: light.lux_valid,
+            source: SENSOR_SOURCE_ROBOT_STATUS_HTTP.to_string(),
         },
         (None, None) => RobotDebugLightSensor {
             lux: None,
@@ -195,7 +203,17 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
         },
     };
 
-    let infrared_sensor = if let Some(ir) = robot_status
+    let infrared_sensor = if let Some(ir) = current_state
+        .as_ref()
+        .and_then(|state| state.infrared.as_ref())
+    {
+        RobotDebugInfraredSensor {
+            front: ir.front,
+            left: ir.left,
+            right: ir.right,
+            source: SENSOR_SOURCE_TABLE_STATE.to_string(),
+        }
+    } else if let Some(ir) = robot_status
         .as_ref()
         .and_then(|status| status.sensors.as_ref())
         .and_then(|sensors| sensors.ir.as_ref())
@@ -206,16 +224,6 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
             right: Some(ir.right),
             source: SENSOR_SOURCE_ROBOT_STATUS_HTTP.to_string(),
         }
-    } else if let Some(ir) = current_state
-        .as_ref()
-        .and_then(|state| state.infrared.as_ref())
-    {
-        RobotDebugInfraredSensor {
-            front: ir.front,
-            left: ir.left,
-            right: ir.right,
-            source: SENSOR_SOURCE_TABLE_STATE.to_string(),
-        }
     } else {
         RobotDebugInfraredSensor {
             front: None,
@@ -225,7 +233,36 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
         }
     };
 
-    let power_sensor = if let Some(power) = robot_status
+    let power_sensor = if let Some(state) = current_state.as_ref() {
+        let has_power =
+            state.voltage_v.is_some() || state.current_a.is_some() || state.power_w.is_some();
+        if has_power {
+            RobotDebugPowerSensor {
+                voltage_v: state.voltage_v,
+                current_a: state.current_a,
+                power_w: state.power_w,
+                source: SENSOR_SOURCE_TABLE_STATE.to_string(),
+            }
+        } else if let Some(power) = robot_status
+            .as_ref()
+            .and_then(|status| status.sensors.as_ref())
+            .and_then(|sensors| sensors.power.as_ref())
+        {
+            RobotDebugPowerSensor {
+                voltage_v: power.valid.then_some(power.battery_voltage),
+                current_a: power.valid.then_some(power.current_a),
+                power_w: power.valid.then_some(power.power_w),
+                source: SENSOR_SOURCE_ROBOT_STATUS_HTTP.to_string(),
+            }
+        } else {
+            RobotDebugPowerSensor {
+                voltage_v: None,
+                current_a: None,
+                power_w: None,
+                source: SENSOR_SOURCE_UNAVAILABLE.to_string(),
+            }
+        }
+    } else if let Some(power) = robot_status
         .as_ref()
         .and_then(|status| status.sensors.as_ref())
         .and_then(|sensors| sensors.power.as_ref())
@@ -235,20 +272,6 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
             current_a: power.valid.then_some(power.current_a),
             power_w: power.valid.then_some(power.power_w),
             source: SENSOR_SOURCE_ROBOT_STATUS_HTTP.to_string(),
-        }
-    } else if let Some(state) = current_state.as_ref() {
-        let has_power =
-            state.voltage_v.is_some() || state.current_a.is_some() || state.power_w.is_some();
-        RobotDebugPowerSensor {
-            voltage_v: state.voltage_v,
-            current_a: state.current_a,
-            power_w: state.power_w,
-            source: if has_power {
-                SENSOR_SOURCE_TABLE_STATE
-            } else {
-                SENSOR_SOURCE_UNAVAILABLE
-            }
-            .to_string(),
         }
     } else {
         RobotDebugPowerSensor {
