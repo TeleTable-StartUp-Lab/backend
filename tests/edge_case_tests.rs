@@ -52,7 +52,7 @@ async fn test_status_hides_expired_lock() {
 }
 
 // ---------------------------------------------------------------------------
-    // 2. Active (non-expired) lock IS reported in status snapshot
+// 2. Active (non-expired) lock IS reported in status snapshot
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_status_shows_active_lock() {
@@ -74,7 +74,10 @@ async fn test_status_shows_active_lock() {
     }
 
     let status = backend::robot::build_status_update(&app.state).await;
-    assert_eq!(status.manual_lock_holder_name, Some("Active User".to_string()));
+    assert_eq!(
+        status.manual_lock_holder_name,
+        Some("Active User".to_string())
+    );
 }
 
 // ---------------------------------------------------------------------------

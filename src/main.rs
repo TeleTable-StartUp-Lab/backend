@@ -87,6 +87,7 @@ async fn main() {
         robot_state: robot_state.clone(),
         http_client,
     });
+    let debug_broadcaster = backend::robot::spawn_debug_telemetry_broadcaster(state.clone());
 
     let app = create_router(state);
 
@@ -106,6 +107,8 @@ async fn main() {
     .with_graceful_shutdown(shutdown_signal())
     .await
     .expect("Server error");
+
+    debug_broadcaster.abort();
 
     tracing::info!("Server stopped");
 }

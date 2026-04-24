@@ -1,6 +1,4 @@
-use super::models::{
-    QueuedRoute, RobotCommand, RobotDebugSnapshot, RobotState, RobotStatusUpdate,
-};
+use super::models::{QueuedRoute, RobotCommand, RobotDebugSnapshot, RobotState, RobotStatusUpdate};
 use crate::notifications::models::RobotNotification;
 use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
@@ -12,6 +10,8 @@ use uuid::Uuid;
 pub const ROBOT_STALE_TIMEOUT_SECS: i64 = 30;
 /// How often the background cleanup task runs (in seconds)
 pub const CLEANUP_INTERVAL_SECS: u64 = 5;
+/// How often debug telemetry snapshots are broadcast even if no state event arrived.
+pub const DEBUG_TELEMETRY_INTERVAL_SECS: u64 = 5;
 
 #[derive(Debug, Clone)]
 pub struct SharedRobotState {

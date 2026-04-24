@@ -4,9 +4,9 @@ use axum::{
 };
 use chrono::Utc;
 use tower::ServiceExt;
+use uuid::Uuid;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use uuid::Uuid;
 
 mod common;
 

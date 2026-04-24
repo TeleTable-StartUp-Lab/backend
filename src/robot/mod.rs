@@ -12,7 +12,9 @@ use models::{
     RobotDebugRfidSensor, RobotDebugRouting, RobotDebugSensors, RobotDebugSnapshot,
     RobotDebugTelemetry, RobotStatusHttpResponse, RobotStatusUpdate,
 };
+use state::DEBUG_TELEMETRY_INTERVAL_SECS;
 use std::sync::Arc;
+use std::time::Duration;
 
 const SENSOR_SOURCE_ROBOT_STATUS_HTTP: &str = "robot_status_http";
 const SENSOR_SOURCE_TABLE_STATE: &str = "table_state";
@@ -83,6 +85,19 @@ pub async fn broadcast_debug_snapshot(state: &Arc<AppState>) {
     let _ = state.robot_state.debug_sender.send(debug_snapshot);
 }
 
+pub fn spawn_debug_telemetry_broadcaster(state: Arc<AppState>) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval =
+            tokio::time::interval(Duration::from_secs(DEBUG_TELEMETRY_INTERVAL_SECS));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        loop {
+            interval.tick().await;
+            broadcast_debug_snapshot(&state).await;
+        }
+    })
+}
+
 async fn fetch_robot_status(
     state: &Arc<AppState>,
     robot_url: Option<&str>,
@@ -148,7 +163,11 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
             Some(lock_info.holder_name),
             Some(lock_info.expires_at),
         ),
-        Some(lock_info) => (false, Some(lock_info.holder_name), Some(lock_info.expires_at)),
+        Some(lock_info) => (
+            false,
+            Some(lock_info.holder_name),
+            Some(lock_info.expires_at),
+        ),
         None => (false, None, None),
     };
 
@@ -187,7 +206,10 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
             right: Some(ir.right),
             source: SENSOR_SOURCE_ROBOT_STATUS_HTTP.to_string(),
         }
-    } else if let Some(ir) = current_state.as_ref().and_then(|state| state.infrared.as_ref()) {
+    } else if let Some(ir) = current_state
+        .as_ref()
+        .and_then(|state| state.infrared.as_ref())
+    {
         RobotDebugInfraredSensor {
             front: ir.front,
             left: ir.left,
@@ -237,7 +259,9 @@ pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
         }
     };
 
-    let gyroscope = current_state.as_ref().and_then(|state| state.gyroscope.as_ref());
+    let gyroscope = current_state
+        .as_ref()
+        .and_then(|state| state.gyroscope.as_ref());
     let gyroscope_sensor = RobotDebugGyroscopeSensor {
         x_dps: gyroscope.and_then(|reading| reading.x_dps),
         y_dps: gyroscope.and_then(|reading| reading.y_dps),
