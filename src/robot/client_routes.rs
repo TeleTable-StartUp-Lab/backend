@@ -3,7 +3,8 @@ use crate::auth::roles;
 use crate::auth::security::decode_jwt;
 use crate::notifications::models::RobotNotification;
 use crate::robot::models::{
-    NodesResponse, QueuedRoute, RobotCommand, RobotStatusUpdate, RouteSelectionRequest,
+    NodesResponse, QueuedRoute, RobotCommand, RobotDebugSnapshot, RobotStatusUpdate,
+    RouteSelectionRequest,
 };
 use crate::AppState;
 use axum::{
@@ -85,11 +86,14 @@ pub async fn robot_events_ws(
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    ws.on_upgrade(move |socket| handle_events_socket(socket, state))
+    let is_admin = roles::is_admin(&claims.role);
+
+    ws.on_upgrade(move |socket| handle_events_socket(socket, state, is_admin))
 }
 
-async fn handle_events_socket(mut socket: WebSocket, state: Arc<AppState>) {
+async fn handle_events_socket(mut socket: WebSocket, state: Arc<AppState>, is_admin: bool) {
     let mut status_rx = state.robot_state.status_sender.subscribe();
+    let mut debug_rx = is_admin.then(|| state.robot_state.debug_sender.subscribe());
     let mut notification_rx = state.robot_state.notification_sender.subscribe();
 
     let initial_status = crate::robot::build_status_update(&state).await;
@@ -101,6 +105,20 @@ async fn handle_events_socket(mut socket: WebSocket, state: Arc<AppState>) {
         if socket.send(Message::Text(msg.into())).await.is_err() {
             return;
         }
+    }
+
+    if let Some(debug_rx) = debug_rx.as_mut() {
+        let initial_debug = crate::robot::build_debug_snapshot(&state).await;
+        let initial_debug_event = WsDebugSnapshotEvent {
+            event: "debug_snapshot",
+            data: initial_debug,
+        };
+        if let Ok(msg) = serde_json::to_string(&initial_debug_event) {
+            if socket.send(Message::Text(msg.into())).await.is_err() {
+                return;
+            }
+        }
+        let _ = debug_rx;
     }
 
     loop {
@@ -139,6 +157,25 @@ async fn handle_events_socket(mut socket: WebSocket, state: Arc<AppState>) {
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            debug_snapshot = async {
+                match debug_rx.as_mut() {
+                    Some(rx) => rx.recv().await.ok(),
+                    None => None,
+                }
+            }, if is_admin => {
+                if let Some(debug_snapshot) = debug_snapshot {
+                    let envelope = WsDebugSnapshotEvent {
+                        event: "debug_snapshot",
+                        data: debug_snapshot,
+                    };
+
+                    if let Ok(msg) = serde_json::to_string(&envelope) {
+                        if socket.send(Message::Text(msg.into())).await.is_err() {
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -257,6 +294,12 @@ struct WsStatusUpdateEvent {
     data: RobotStatusUpdate,
 }
 
+#[derive(Serialize)]
+struct WsDebugSnapshotEvent {
+    event: &'static str,
+    data: RobotDebugSnapshot,
+}
+
 pub async fn get_nodes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     // Check Redis cache first
     let mut redis = state.redis.clone();
@@ -318,6 +361,11 @@ pub async fn get_nodes(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         Json(NodesResponse { nodes: vec![] }),
     )
         .into_response()
+}
+
+pub async fn get_robot_debug(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let debug_snapshot = crate::robot::build_debug_snapshot(&state).await;
+    (StatusCode::OK, Json(debug_snapshot)).into_response()
 }
 
 pub async fn select_route(

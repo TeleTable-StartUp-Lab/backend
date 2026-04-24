@@ -6,8 +6,17 @@ pub mod robot_routes;
 pub mod state;
 
 use crate::AppState;
-use models::{LastRoute, RobotCommand, RobotStatusUpdate};
+use models::{
+    LastRoute, RobotCommand, RobotDebugConnection, RobotDebugGyroscopeSensor,
+    RobotDebugInfraredSensor, RobotDebugLightSensor, RobotDebugLock, RobotDebugPowerSensor,
+    RobotDebugRfidSensor, RobotDebugRouting, RobotDebugSensors, RobotDebugSnapshot,
+    RobotDebugTelemetry, RobotStatusHttpResponse, RobotStatusUpdate,
+};
 use std::sync::Arc;
+
+const SENSOR_SOURCE_ROBOT_STATUS_HTTP: &str = "robot_status_http";
+const SENSOR_SOURCE_TABLE_STATE: &str = "table_state";
+const SENSOR_SOURCE_UNAVAILABLE: &str = "unavailable";
 
 pub async fn build_status_update(state: &Arc<AppState>) -> RobotStatusUpdate {
     let robot_state = state.robot_state.current_state.read().await;
@@ -65,9 +74,231 @@ pub async fn build_status_update(state: &Arc<AppState>) -> RobotStatusUpdate {
 pub async fn broadcast_status_update(state: &Arc<AppState>) {
     let status_update = build_status_update(state).await;
     let _ = state.robot_state.status_sender.send(status_update);
+
+    let debug_snapshot = build_debug_snapshot(state).await;
+    let _ = state.robot_state.debug_sender.send(debug_snapshot);
 }
 
-async fn get_or_refresh_nodes(state: &Arc<AppState>) -> Vec<String> {
+async fn fetch_robot_status(
+    state: &Arc<AppState>,
+    robot_url: Option<&str>,
+) -> Option<RobotStatusHttpResponse> {
+    let url = robot_url?;
+    let response = match state.http_client.get(format!("{url}/status")).send().await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(
+                endpoint = %format!("{url}/status"),
+                error = %error,
+                "External API failure - could not reach robot /status"
+            );
+            return None;
+        }
+    };
+
+    if !response.status().is_success() {
+        tracing::warn!(
+            endpoint = %format!("{url}/status"),
+            status_code = response.status().as_u16(),
+            "External API failure - robot /status returned non-success status"
+        );
+        return None;
+    }
+
+    match response.json::<RobotStatusHttpResponse>().await {
+        Ok(status) => Some(status),
+        Err(error) => {
+            tracing::warn!(
+                endpoint = %format!("{url}/status"),
+                error = %error,
+                "External API failure - robot /status returned invalid JSON"
+            );
+            None
+        }
+    }
+}
+
+pub async fn build_debug_snapshot(state: &Arc<AppState>) -> RobotDebugSnapshot {
+    let status_update = build_status_update(state).await;
+    let current_state = state.robot_state.current_state.read().await.clone();
+    let last_state_update = *state.robot_state.last_state_update.read().await;
+    let robot_url = state.robot_state.robot_url.read().await.clone();
+    let active_route = state.robot_state.active_route.read().await.clone();
+    let queue = state
+        .robot_state
+        .queue
+        .read()
+        .await
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    let lock = state.robot_state.manual_lock.read().await.clone();
+    let nodes = get_or_refresh_nodes(state).await;
+    let robot_status = fetch_robot_status(state, robot_url.as_deref()).await;
+    let robot_status_reachable = robot_status.is_some();
+    let now = chrono::Utc::now();
+
+    let (lock_active, holder_name, expires_at) = match lock {
+        Some(lock_info) if lock_info.expires_at > now => (
+            true,
+            Some(lock_info.holder_name),
+            Some(lock_info.expires_at),
+        ),
+        Some(lock_info) => (false, Some(lock_info.holder_name), Some(lock_info.expires_at)),
+        None => (false, None, None),
+    };
+
+    let light_sensor = match (
+        robot_status
+            .as_ref()
+            .and_then(|status| status.sensors.as_ref())
+            .and_then(|sensors| sensors.light.as_ref()),
+        current_state.as_ref().and_then(|state| state.lux),
+    ) {
+        (Some(light), _) => RobotDebugLightSensor {
+            lux: light.lux_valid.then_some(light.lux),
+            valid: light.lux_valid,
+            source: SENSOR_SOURCE_ROBOT_STATUS_HTTP.to_string(),
+        },
+        (None, Some(lux)) => RobotDebugLightSensor {
+            lux: Some(lux),
+            valid: true,
+            source: SENSOR_SOURCE_TABLE_STATE.to_string(),
+        },
+        (None, None) => RobotDebugLightSensor {
+            lux: None,
+            valid: false,
+            source: SENSOR_SOURCE_UNAVAILABLE.to_string(),
+        },
+    };
+
+    let infrared_sensor = if let Some(ir) = robot_status
+        .as_ref()
+        .and_then(|status| status.sensors.as_ref())
+        .and_then(|sensors| sensors.ir.as_ref())
+    {
+        RobotDebugInfraredSensor {
+            front: Some(ir.middle),
+            left: Some(ir.left),
+            right: Some(ir.right),
+            source: SENSOR_SOURCE_ROBOT_STATUS_HTTP.to_string(),
+        }
+    } else if let Some(ir) = current_state.as_ref().and_then(|state| state.infrared.as_ref()) {
+        RobotDebugInfraredSensor {
+            front: ir.front,
+            left: ir.left,
+            right: ir.right,
+            source: SENSOR_SOURCE_TABLE_STATE.to_string(),
+        }
+    } else {
+        RobotDebugInfraredSensor {
+            front: None,
+            left: None,
+            right: None,
+            source: SENSOR_SOURCE_UNAVAILABLE.to_string(),
+        }
+    };
+
+    let power_sensor = if let Some(power) = robot_status
+        .as_ref()
+        .and_then(|status| status.sensors.as_ref())
+        .and_then(|sensors| sensors.power.as_ref())
+    {
+        RobotDebugPowerSensor {
+            voltage_v: power.valid.then_some(power.battery_voltage),
+            current_a: power.valid.then_some(power.current_a),
+            power_w: power.valid.then_some(power.power_w),
+            source: SENSOR_SOURCE_ROBOT_STATUS_HTTP.to_string(),
+        }
+    } else if let Some(state) = current_state.as_ref() {
+        let has_power =
+            state.voltage_v.is_some() || state.current_a.is_some() || state.power_w.is_some();
+        RobotDebugPowerSensor {
+            voltage_v: state.voltage_v,
+            current_a: state.current_a,
+            power_w: state.power_w,
+            source: if has_power {
+                SENSOR_SOURCE_TABLE_STATE
+            } else {
+                SENSOR_SOURCE_UNAVAILABLE
+            }
+            .to_string(),
+        }
+    } else {
+        RobotDebugPowerSensor {
+            voltage_v: None,
+            current_a: None,
+            power_w: None,
+            source: SENSOR_SOURCE_UNAVAILABLE.to_string(),
+        }
+    };
+
+    let gyroscope = current_state.as_ref().and_then(|state| state.gyroscope.as_ref());
+    let gyroscope_sensor = RobotDebugGyroscopeSensor {
+        x_dps: gyroscope.and_then(|reading| reading.x_dps),
+        y_dps: gyroscope.and_then(|reading| reading.y_dps),
+        z_dps: gyroscope.and_then(|reading| reading.z_dps),
+        source: if gyroscope.is_some() {
+            SENSOR_SOURCE_TABLE_STATE
+        } else {
+            SENSOR_SOURCE_UNAVAILABLE
+        }
+        .to_string(),
+    };
+
+    let has_rfid = current_state
+        .as_ref()
+        .and_then(|state| state.last_read_uuid.as_ref())
+        .is_some();
+    let rfid_sensor = RobotDebugRfidSensor {
+        last_read_uuid: current_state
+            .as_ref()
+            .and_then(|state| state.last_read_uuid.clone()),
+        source: if has_rfid {
+            SENSOR_SOURCE_TABLE_STATE
+        } else {
+            SENSOR_SOURCE_UNAVAILABLE
+        }
+        .to_string(),
+    };
+
+    RobotDebugSnapshot {
+        telemetry: RobotDebugTelemetry {
+            system_health: status_update.system_health,
+            battery_level: status_update.battery_level,
+            drive_mode: status_update.drive_mode,
+            cargo_status: status_update.cargo_status,
+            position: status_update.position,
+            last_route: status_update.last_route,
+            robot_connected: status_update.robot_connected,
+        },
+        lock: RobotDebugLock {
+            holder_name,
+            active: lock_active,
+            expires_at,
+        },
+        routing: RobotDebugRouting {
+            active_route,
+            queue_length: queue.len(),
+            queue,
+            nodes,
+        },
+        connection: RobotDebugConnection {
+            robot_url,
+            last_state_update,
+            robot_status_reachable,
+        },
+        sensors: RobotDebugSensors {
+            light: light_sensor,
+            infrared: infrared_sensor,
+            power: power_sensor,
+            gyroscope: gyroscope_sensor,
+            rfid: rfid_sensor,
+        },
+    }
+}
+
+pub(crate) async fn get_or_refresh_nodes(state: &Arc<AppState>) -> Vec<String> {
     if let Some(nodes) = &*state.robot_state.cached_nodes.read().await {
         return nodes.clone();
     }

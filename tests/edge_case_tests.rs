@@ -362,6 +362,13 @@ async fn test_process_queue_skipped_with_active_lock() {
             current_position: "kitchen".to_string(),
             last_node: None,
             target_node: None,
+            gyroscope: None,
+            last_read_uuid: None,
+            lux: None,
+            infrared: None,
+            voltage_v: None,
+            current_a: None,
+            power_w: None,
         });
     }
 
@@ -436,6 +443,13 @@ async fn test_process_queue_proceeds_with_expired_lock() {
             current_position: "kitchen".to_string(),
             last_node: None,
             target_node: None,
+            gyroscope: None,
+            last_read_uuid: None,
+            lux: None,
+            infrared: None,
+            voltage_v: None,
+            current_a: None,
+            power_w: None,
         });
     }
 
@@ -516,6 +530,13 @@ async fn test_process_queue_skipped_when_robot_stale() {
             current_position: "kitchen".to_string(),
             last_node: None,
             target_node: None,
+            gyroscope: None,
+            last_read_uuid: None,
+            lux: None,
+            infrared: None,
+            voltage_v: None,
+            current_a: None,
+            power_w: None,
         });
     }
 

@@ -71,11 +71,53 @@ Expected camelCase JSON:
   "cargoStatus": "EMPTY",
   "currentPosition": "Home",
   "lastNode": "Home",
-  "targetNode": "Kitchen"
+  "targetNode": "Kitchen",
+  "gyroscope": {
+    "xDps": 0.3,
+    "yDps": -0.1,
+    "zDps": 1.2
+  },
+  "lastReadUuid": "04A1B2C3D4",
+  "lux": 124.5,
+  "infrared": {
+    "front": false,
+    "left": true,
+    "right": false
+  },
+  "voltageV": 12.4,
+  "currentA": 1.6,
+  "powerW": 19.8
 }
 ```
 
-`lastNode` and `targetNode` are optional.
+Fields:
+
+- `systemHealth` (`string`, required): overall robot health string such as `OK`.
+- `batteryLevel` (`number`, required): battery percentage from `0` to `100`.
+- `driveMode` (`string`, required): backend-visible robot mode such as `IDLE`, `MANUAL`, or `AUTO`.
+- `cargoStatus` (`string`, required): current cargo/load state string.
+- `currentPosition` (`string`, required): current robot position or location label.
+- `lastNode` (`string`, optional): previously visited node for the active or last route.
+- `targetNode` (`string`, optional): destination node for the active or last route.
+- `gyroscope` (`object`, optional): angular velocity readings in degrees per second.
+- `gyroscope.xDps` (`number`, optional): X-axis angular velocity.
+- `gyroscope.yDps` (`number`, optional): Y-axis angular velocity.
+- `gyroscope.zDps` (`number`, optional): Z-axis angular velocity.
+- `lastReadUuid` (`string`, optional): last RFID UUID observed by the firmware.
+- `lux` (`number`, optional): ambient light reading in lux.
+- `infrared` (`object`, optional): infrared obstacle sensor readings.
+- `infrared.front` (`boolean`, optional): front obstacle state.
+- `infrared.left` (`boolean`, optional): left obstacle state.
+- `infrared.right` (`boolean`, optional): right obstacle state.
+- `voltageV` (`number`, optional): measured battery voltage in volts.
+- `currentA` (`number`, optional): measured battery current in amps.
+- `powerW` (`number`, optional): measured battery power in watts.
+
+Notes:
+
+- JSON keys are camelCase.
+- Any optional field may be omitted entirely.
+- Optional nested objects may also be sent partially, for example only `gyroscope.zDps`.
 
 ### `RobotEvent` (robot -> backend)
 
@@ -126,7 +168,8 @@ Auth:
 
 Behavior:
 
-- updates `current_state`
+- accepts the extended `RobotState` telemetry payload documented above
+- stores the last received telemetry payload in `current_state`
 - updates `last_state_update`
 - clears `active_route` when robot returns to `driveMode: "IDLE"`
 - triggers queue processing

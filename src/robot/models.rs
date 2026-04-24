@@ -21,6 +21,42 @@ pub struct RobotState {
     pub current_position: String,
     pub last_node: Option<String>,
     pub target_node: Option<String>,
+    #[serde(default)]
+    pub gyroscope: Option<RobotGyroscopeReading>,
+    #[serde(default)]
+    pub last_read_uuid: Option<String>,
+    #[serde(default)]
+    pub lux: Option<f32>,
+    #[serde(default)]
+    pub infrared: Option<RobotInfraredReading>,
+    #[serde(default)]
+    pub voltage_v: Option<f32>,
+    #[serde(default)]
+    pub current_a: Option<f32>,
+    #[serde(default)]
+    pub power_w: Option<f32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotGyroscopeReading {
+    #[serde(default)]
+    pub x_dps: Option<f32>,
+    #[serde(default)]
+    pub y_dps: Option<f32>,
+    #[serde(default)]
+    pub z_dps: Option<f32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotInfraredReading {
+    #[serde(default)]
+    pub front: Option<bool>,
+    #[serde(default)]
+    pub left: Option<bool>,
+    #[serde(default)]
+    pub right: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -115,4 +151,141 @@ pub struct NodesResponse {
 pub struct RouteSelectionRequest {
     pub start: String,
     pub destination: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotDebugSnapshot {
+    pub telemetry: RobotDebugTelemetry,
+    pub lock: RobotDebugLock,
+    pub routing: RobotDebugRouting,
+    pub connection: RobotDebugConnection,
+    pub sensors: RobotDebugSensors,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotDebugTelemetry {
+    pub system_health: String,
+    pub battery_level: u8,
+    pub drive_mode: String,
+    pub cargo_status: String,
+    pub position: String,
+    pub last_route: Option<LastRoute>,
+    pub robot_connected: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotDebugLock {
+    pub holder_name: Option<String>,
+    pub active: bool,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotDebugRouting {
+    pub active_route: Option<QueuedRoute>,
+    pub queue: Vec<QueuedRoute>,
+    pub queue_length: usize,
+    pub nodes: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotDebugConnection {
+    pub robot_url: Option<String>,
+    pub last_state_update: Option<DateTime<Utc>>,
+    pub robot_status_reachable: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotDebugSensors {
+    pub light: RobotDebugLightSensor,
+    pub infrared: RobotDebugInfraredSensor,
+    pub power: RobotDebugPowerSensor,
+    pub gyroscope: RobotDebugGyroscopeSensor,
+    pub rfid: RobotDebugRfidSensor,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotDebugLightSensor {
+    pub lux: Option<f32>,
+    pub valid: bool,
+    pub source: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotDebugInfraredSensor {
+    pub front: Option<bool>,
+    pub left: Option<bool>,
+    pub right: Option<bool>,
+    pub source: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotDebugPowerSensor {
+    pub voltage_v: Option<f32>,
+    pub current_a: Option<f32>,
+    pub power_w: Option<f32>,
+    pub source: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotDebugGyroscopeSensor {
+    pub x_dps: Option<f32>,
+    pub y_dps: Option<f32>,
+    pub z_dps: Option<f32>,
+    pub source: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotDebugRfidSensor {
+    pub last_read_uuid: Option<String>,
+    pub source: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotStatusHttpResponse {
+    pub sensors: Option<RobotStatusHttpSensors>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotStatusHttpSensors {
+    pub ir: Option<RobotStatusHttpInfrared>,
+    pub light: Option<RobotStatusHttpLight>,
+    pub power: Option<RobotStatusHttpPower>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotStatusHttpInfrared {
+    pub left: bool,
+    pub middle: bool,
+    pub right: bool,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotStatusHttpLight {
+    pub lux_valid: bool,
+    pub lux: f32,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotStatusHttpPower {
+    pub valid: bool,
+    pub battery_voltage: f32,
+    pub current_a: f32,
+    pub power_w: f32,
 }

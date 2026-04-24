@@ -61,6 +61,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/user", get(auth::login::get_user))
         .route("/user", post(auth::login::update_user))
         .route("/user", delete(auth::login::delete_user))
+        .route("/robot/debug", get(robot::client_routes::get_robot_debug))
         .route_layer(middleware::from_fn(admin_middleware))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),

@@ -1,4 +1,6 @@
-use super::models::{QueuedRoute, RobotCommand, RobotState, RobotStatusUpdate};
+use super::models::{
+    QueuedRoute, RobotCommand, RobotDebugSnapshot, RobotState, RobotStatusUpdate,
+};
 use crate::notifications::models::RobotNotification;
 use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
@@ -18,6 +20,7 @@ pub struct SharedRobotState {
     pub manual_lock: Arc<RwLock<Option<LockInfo>>>,
     pub command_sender: broadcast::Sender<RobotCommand>,
     pub status_sender: broadcast::Sender<RobotStatusUpdate>,
+    pub debug_sender: broadcast::Sender<RobotDebugSnapshot>,
     pub notification_sender: broadcast::Sender<RobotNotification>,
     pub robot_url: Arc<RwLock<Option<String>>>,
     pub cached_nodes: Arc<RwLock<Option<Vec<String>>>>,
@@ -36,6 +39,7 @@ impl SharedRobotState {
     pub fn new() -> Self {
         let (command_tx, _) = broadcast::channel(100);
         let (status_tx, _) = broadcast::channel(200);
+        let (debug_tx, _) = broadcast::channel(100);
         let (notification_tx, _) = broadcast::channel(200);
         Self {
             current_state: Arc::new(RwLock::new(None)),
@@ -43,6 +47,7 @@ impl SharedRobotState {
             manual_lock: Arc::new(RwLock::new(None)),
             command_sender: command_tx,
             status_sender: status_tx,
+            debug_sender: debug_tx,
             notification_sender: notification_tx,
             cached_nodes: Arc::new(RwLock::new(None)),
             robot_url: Arc::new(RwLock::new(None)),
