@@ -107,7 +107,7 @@ async fn handle_events_socket(mut socket: WebSocket, state: Arc<AppState>, is_ad
         }
     }
 
-    if let Some(debug_rx) = debug_rx.as_mut() {
+    if debug_rx.is_some() {
         let initial_debug = crate::robot::build_debug_snapshot(&state).await;
         let initial_debug_event = WsDebugSnapshotEvent {
             event: "debug_snapshot",
@@ -118,7 +118,6 @@ async fn handle_events_socket(mut socket: WebSocket, state: Arc<AppState>, is_ad
                 return;
             }
         }
-        let _ = debug_rx;
     }
 
     loop {
@@ -215,6 +214,7 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
             if is_admin {
                 // Admin can do anything
                 // Check if this is a navigation command that needs preemption
+                let mut debug_changed = false;
                 if let RobotCommand::Navigate { .. } = &cmd {
                     let mut lock = state.robot_state.manual_lock.write().await;
                     let should_revoke = if let Some(l) = &*lock {
@@ -229,6 +229,7 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                             .map(|l| l.holder_name.clone())
                             .unwrap_or_default();
                         *lock = None; // Forcibly revoke
+                        debug_changed = true;
                         tracing::info!("Admin revoked lock from operator {}", name);
                     }
                     drop(lock);
@@ -244,6 +245,7 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                         // "Resumed route starts from beginning" -> So we just put it back in queue with same Start/End
                         let mut queue = state.robot_state.queue.write().await;
                         queue.push_front(active);
+                        debug_changed = true;
                     }
 
                     // Track this WS navigation as the active route (so it appears in queue view)
@@ -255,11 +257,15 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                             added_at: Utc::now(),
                             added_by: claims.name.clone(),
                         });
+                        debug_changed = true;
                     }
                 }
 
                 // Execute Admin Command
                 let _ = state.robot_state.command_sender.send(cmd);
+                if debug_changed {
+                    crate::robot::broadcast_status_update(&state).await;
+                }
             } else if is_operator {
                 // Operators cannot send navigation/cancel commands via WS
                 if matches!(cmd, RobotCommand::Navigate { .. } | RobotCommand::Cancel) {
@@ -334,6 +340,8 @@ pub async fn get_nodes(State(state): State<Arc<AppState>>) -> impl IntoResponse 
                         let _ =
                             crate::cache::CacheService::cache_nodes(&mut redis, &nodes_resp.nodes)
                                 .await;
+                        drop(cache);
+                        crate::robot::broadcast_status_update(&state).await;
 
                         return (StatusCode::OK, Json(nodes_resp)).into_response();
                     }
@@ -415,6 +423,7 @@ pub async fn select_route(
 
     // Attempt dispatch
     crate::robot::process_queue(&state).await;
+    crate::robot::broadcast_status_update(&state).await;
 
     Json(serde_json::json!({
         "status": "success",

@@ -75,6 +75,10 @@ pub async fn broadcast_status_update(state: &Arc<AppState>) {
     let status_update = build_status_update(state).await;
     let _ = state.robot_state.status_sender.send(status_update);
 
+    broadcast_debug_snapshot(state).await;
+}
+
+pub async fn broadcast_debug_snapshot(state: &Arc<AppState>) {
     let debug_snapshot = build_debug_snapshot(state).await;
     let _ = state.robot_state.debug_sender.send(debug_snapshot);
 }

@@ -70,6 +70,7 @@ pub async fn add_route(
 
     // Trigger queue processing
     crate::robot::process_queue(&state).await;
+    crate::robot::broadcast_status_update(&state).await;
 
     (StatusCode::CREATED, Json(route)).into_response()
 }
@@ -93,7 +94,9 @@ pub async fn delete_route(
     let mut queue = state.robot_state.queue.write().await;
     if let Some(pos) = queue.iter().position(|r| r.id == id) {
         queue.remove(pos);
+        drop(queue);
         tracing::info!(route_id = %id, deleted_by = %claims.name, "Route removed from queue");
+        crate::robot::broadcast_status_update(&state).await;
         StatusCode::NO_CONTENT.into_response()
     } else {
         StatusCode::NOT_FOUND.into_response()
@@ -126,6 +129,9 @@ pub async fn optimize_routes(
 
     guard.truncate(0);
     guard.extend(optimized);
+    drop(guard);
+
+    crate::robot::broadcast_status_update(&state).await;
 
     Json(serde_json::json!({
         "status": "success",
