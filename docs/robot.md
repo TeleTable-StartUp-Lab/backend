@@ -166,6 +166,38 @@ Example:
 { "command": "NAVIGATE", "start": "home", "destination": "office" }
 ```
 
+### `LED` command
+
+Controls the WS2812B LED strip.
+
+Payload:
+
+```json
+{
+  "command": "LED",
+  "enabled": true,
+  "mode": "static",
+  "r": 83,
+  "g": 64,
+  "b": 39,
+  "brightness": 40
+}
+```
+
+Fields:
+
+- `enabled` (`boolean`, required): turns the strip on/off.
+- `mode` (`string`, optional): LED animation mode. If omitted, the firmware treats it as `"static"`.
+- `r`, `g`, `b` (`number`, required): base color channels `0..255`.
+- `brightness` (`number`, required): percent `0..100`.
+
+Supported modes:
+
+- `static`: solid color.
+- `breathing`: fades brightness up/down using the base color.
+- `loop`: a single “chasing” pixel looping around the strip using the base color.
+- `rainbow`: cycles through all colors.
+
 ## Robot-to-backend endpoints
 
 ## `POST /table/state`

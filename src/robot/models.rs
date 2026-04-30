@@ -2,6 +2,15 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LedMode {
+    Static,
+    Breathing,
+    Loop,
+    Rainbow,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct QueuedRoute {
     pub id: Uuid,
@@ -104,6 +113,8 @@ pub enum RobotCommand {
     #[serde(rename = "LED")]
     Led {
         enabled: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<LedMode>,
         r: u8,
         g: u8,
         b: u8,
