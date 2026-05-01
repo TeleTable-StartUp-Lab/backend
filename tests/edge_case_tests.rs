@@ -225,6 +225,12 @@ async fn test_expired_lock_allows_new_acquisition() {
 
     let old_user_id = uuid::Uuid::new_v4();
 
+    // Simulate a connected robot before acquiring lock
+    {
+        let mut state = app.state.robot_state.last_state_update.write().await;
+        *state = Some(chrono::Utc::now());
+    }
+
     // Set an expired lock for a different user
     {
         let mut lock = app.state.robot_state.manual_lock.write().await;
@@ -282,6 +288,12 @@ async fn test_lock_renewal_extends_expiry() {
             return;
         }
     };
+
+    // Simulate a connected robot before acquiring lock
+    {
+        let mut state = app.state.robot_state.last_state_update.write().await;
+        *state = Some(chrono::Utc::now());
+    }
 
     let auth = auth_header_for(
         "22222222-2222-2222-2222-222222222222",
