@@ -23,7 +23,11 @@ async fn insert_test_user(
     )
     .bind(user_id)
     .bind(format!("{role} User"))
-    .bind(format!("{}@example.com", role.to_ascii_lowercase()))
+    .bind(format!(
+        "{}-{}@example.com",
+        role.to_ascii_lowercase(),
+        user_id
+    ))
     .bind("hashed_password")
     .bind(role)
     .bind(Utc::now())
