@@ -32,11 +32,33 @@ pub async fn robot_control_ws(
 
 async fn handle_robot_socket(mut socket: WebSocket, state: Arc<AppState>) {
     let mut rx = state.robot_state.command_sender.subscribe();
+    let mut audio_rx = state.robot_state.audio_sender.subscribe();
 
-    while let Ok(cmd) = rx.recv().await {
-        if let Ok(msg) = serde_json::to_string(&cmd) {
-            if socket.send(Message::Text(msg.into())).await.is_err() {
-                break;
+    loop {
+        tokio::select! {
+            cmd = rx.recv() => {
+                match cmd {
+                    Ok(cmd) => {
+                        if let Ok(msg) = serde_json::to_string(&cmd) {
+                            if socket.send(Message::Text(msg.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            audio = audio_rx.recv() => {
+                match audio {
+                    Ok(frame) => {
+                        if socket.send(Message::Binary(frame.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
             }
         }
     }
@@ -150,105 +172,133 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
     let is_admin = roles::is_admin(role);
     let is_operator = roles::is_operator(role);
     while let Some(Ok(msg)) = socket.next().await {
-        if let Message::Text(text) = msg {
-            let cmd: RobotCommand = match serde_json::from_str(&text) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
+        match msg {
+            Message::Text(text) => {
+                let cmd: RobotCommand = match serde_json::from_str(&text) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
 
-            // 1. Role Permission Check - Basic Level
-            if !roles::can_operate(role) {
-                // Viewers cannot send commands.
-                continue;
-            }
+                // 1. Role Permission Check - Basic Level
+                if !roles::can_operate(role) {
+                    // Viewers cannot send commands.
+                    continue;
+                }
 
-            // 1a. Admin-only commands
-            if !is_admin
-                && matches!(
-                    cmd,
-                    RobotCommand::Led { .. }
-                        | RobotCommand::AudioBeep { .. }
-                        | RobotCommand::AudioVolume { .. }
-                )
-            {
-                continue;
-            }
+                // 1a. Admin-only commands
+                if !is_admin
+                    && matches!(
+                        cmd,
+                        RobotCommand::Led { .. }
+                            | RobotCommand::AudioBeep { .. }
+                            | RobotCommand::AudioVolume { .. }
+                            | RobotCommand::AudioStreamStart { .. }
+                            | RobotCommand::AudioStreamStop
+                    )
+                {
+                    continue;
+                }
 
-            // 2. Admin Preemption & Logic
-            if is_admin {
-                // Admin can do anything
-                // Check if this is a navigation command that needs preemption
-                let mut debug_changed = false;
-                if let RobotCommand::Navigate { .. } = &cmd {
-                    let mut lock = state.robot_state.manual_lock.write().await;
-                    let should_revoke = if let Some(l) = &*lock {
-                        l.holder_id.to_string() != claims.sub
+                // 2. Admin Preemption & Logic
+                if is_admin {
+                    // Admin can do anything
+                    // Check if this is a navigation command that needs preemption
+                    let mut debug_changed = false;
+                    if let RobotCommand::Navigate { .. } = &cmd {
+                        let mut lock = state.robot_state.manual_lock.write().await;
+                        let should_revoke = if let Some(l) = &*lock {
+                            l.holder_id.to_string() != claims.sub
+                        } else {
+                            false
+                        };
+
+                        if should_revoke {
+                            let name = lock
+                                .as_ref()
+                                .map(|l| l.holder_name.clone())
+                                .unwrap_or_default();
+                            *lock = None; // Forcibly revoke
+                            debug_changed = true;
+                            tracing::info!("Admin revoked lock from operator {}", name);
+                        }
+                        drop(lock);
+
+                        // Handle Queue Preemption
+                        // Cancel active route, move to front of queue
+                        let mut active_route_guard = state.robot_state.active_route.write().await;
+                        if let Some(active) = active_route_guard.take() {
+                            // There was an active route. Cancel it on robot.
+                            let _ = state.robot_state.command_sender.send(RobotCommand::Cancel);
+
+                            // Move to front of queue
+                            // "Resumed route starts from beginning" -> So we just put it back in queue with same Start/End
+                            let mut queue = state.robot_state.queue.write().await;
+                            queue.push_front(active);
+                            debug_changed = true;
+                        }
+
+                        // Track this WS navigation as the active route (so it appears in queue view)
+                        if let RobotCommand::Navigate { start, destination } = &cmd {
+                            *active_route_guard = Some(QueuedRoute {
+                                id: Uuid::new_v4(),
+                                start: start.clone(),
+                                destination: destination.clone(),
+                                added_at: Utc::now(),
+                                added_by: claims.name.clone(),
+                            });
+                            debug_changed = true;
+                        }
+                    }
+
+                    if matches!(cmd, RobotCommand::AudioStreamStart { .. }) {
+                        let mut streaming = state.robot_state.audio_streaming.write().await;
+                        *streaming = true;
+                    } else if matches!(cmd, RobotCommand::AudioStreamStop) {
+                        let mut streaming = state.robot_state.audio_streaming.write().await;
+                        *streaming = false;
+                    }
+
+                    // Execute Admin Command
+                    let _ = state.robot_state.command_sender.send(cmd);
+                    if debug_changed {
+                        crate::robot::broadcast_status_update(&state).await;
+                    }
+                } else if is_operator {
+                    // Operators cannot send navigation/cancel commands via WS
+                    if matches!(cmd, RobotCommand::Navigate { .. } | RobotCommand::Cancel) {
+                        continue;
+                    }
+
+                    // Operator must hold a non-expired lock to send commands
+                    let lock = state.robot_state.manual_lock.read().await;
+                    let is_valid_holder = if let Some(l) = &*lock {
+                        l.holder_id.to_string() == claims.sub && l.expires_at > chrono::Utc::now()
                     } else {
                         false
                     };
 
-                    if should_revoke {
-                        let name = lock
-                            .as_ref()
-                            .map(|l| l.holder_name.clone())
-                            .unwrap_or_default();
-                        *lock = None; // Forcibly revoke
-                        debug_changed = true;
-                        tracing::info!("Admin revoked lock from operator {}", name);
+                    if is_valid_holder {
+                        let _ = state.robot_state.command_sender.send(cmd);
                     }
-                    drop(lock);
-
-                    // Handle Queue Preemption
-                    // Cancel active route, move to front of queue
-                    let mut active_route_guard = state.robot_state.active_route.write().await;
-                    if let Some(active) = active_route_guard.take() {
-                        // There was an active route. Cancel it on robot.
-                        let _ = state.robot_state.command_sender.send(RobotCommand::Cancel);
-
-                        // Move to front of queue
-                        // "Resumed route starts from beginning" -> So we just put it back in queue with same Start/End
-                        let mut queue = state.robot_state.queue.write().await;
-                        queue.push_front(active);
-                        debug_changed = true;
-                    }
-
-                    // Track this WS navigation as the active route (so it appears in queue view)
-                    if let RobotCommand::Navigate { start, destination } = &cmd {
-                        *active_route_guard = Some(QueuedRoute {
-                            id: Uuid::new_v4(),
-                            start: start.clone(),
-                            destination: destination.clone(),
-                            added_at: Utc::now(),
-                            added_by: claims.name.clone(),
-                        });
-                        debug_changed = true;
-                    }
-                }
-
-                // Execute Admin Command
-                let _ = state.robot_state.command_sender.send(cmd);
-                if debug_changed {
-                    crate::robot::broadcast_status_update(&state).await;
-                }
-            } else if is_operator {
-                // Operators cannot send navigation/cancel commands via WS
-                if matches!(cmd, RobotCommand::Navigate { .. } | RobotCommand::Cancel) {
-                    continue;
-                }
-
-                // Operator must hold a non-expired lock to send commands
-                let lock = state.robot_state.manual_lock.read().await;
-                let is_valid_holder = if let Some(l) = &*lock {
-                    l.holder_id.to_string() == claims.sub && l.expires_at > chrono::Utc::now()
-                } else {
-                    false
-                };
-
-                if is_valid_holder {
-                    let _ = state.robot_state.command_sender.send(cmd);
                 }
             }
+            Message::Binary(data) => {
+                if !is_admin {
+                    continue;
+                }
+                let streaming = state.robot_state.audio_streaming.read().await;
+                if !*streaming {
+                    continue;
+                }
+                let _ = state.robot_state.audio_sender.send(data.to_vec());
+            }
+            _ => {}
         }
+    }
+
+    if is_admin {
+        let mut streaming = state.robot_state.audio_streaming.write().await;
+        *streaming = false;
     }
 }
 

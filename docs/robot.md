@@ -159,6 +159,8 @@ Tagged JSON with `command`:
 - `LED`
 - `AUDIO_BEEP`
 - `AUDIO_VOLUME`
+- `AUDIO_STREAM_START`
+- `AUDIO_STREAM_STOP`
 
 Example:
 
@@ -197,6 +199,36 @@ Supported modes:
 - `breathing`: fades brightness up/down using the base color.
 - `loop`: a single “chasing” pixel looping around the strip using the base color.
 - `rainbow`: cycles through all colors.
+
+### `AUDIO_STREAM_START` / `AUDIO_STREAM_STOP`
+
+Streams raw PCM audio frames over the existing manual control socket.
+
+Start payload:
+
+```json
+{
+  "command": "AUDIO_STREAM_START",
+  "sample_rate_hz": 16000,
+  "channels": 1,
+  "bits_per_sample": 16,
+  "little_endian": true
+}
+```
+
+Stop payload:
+
+```json
+{ "command": "AUDIO_STREAM_STOP" }
+```
+
+Streaming behavior:
+
+- After `AUDIO_STREAM_START` is accepted on `/ws/drive/manual`, the client may send binary WebSocket frames containing raw PCM samples.
+- Frames are forwarded to the robot via `/ws/robot/control` as binary WebSocket messages.
+- PCM format is signed 16-bit little-endian, mono, 16 kHz. Other formats are rejected by the firmware.
+- The web app currently sends ~20 ms chunks (320 samples = 640 bytes) to balance latency and stability.
+- `AUDIO_STREAM_STOP` stops playback and clears the audio buffer.
 
 ## Robot-to-backend endpoints
 

@@ -124,6 +124,15 @@ pub enum RobotCommand {
     AudioBeep { hz: u32, ms: u32 },
     #[serde(rename = "AUDIO_VOLUME")]
     AudioVolume { value: f32 },
+    #[serde(rename = "AUDIO_STREAM_START")]
+    AudioStreamStart {
+        sample_rate_hz: u32,
+        channels: u8,
+        bits_per_sample: u8,
+        little_endian: bool,
+    },
+    #[serde(rename = "AUDIO_STREAM_STOP")]
+    AudioStreamStop,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

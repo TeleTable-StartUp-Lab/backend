@@ -16,6 +16,8 @@ pub struct SharedRobotState {
     pub last_state_update: Arc<RwLock<Option<DateTime<Utc>>>>,
     pub manual_lock: Arc<RwLock<Option<LockInfo>>>,
     pub command_sender: broadcast::Sender<RobotCommand>,
+    pub audio_sender: broadcast::Sender<Vec<u8>>,
+    pub audio_streaming: Arc<RwLock<bool>>,
     pub status_sender: broadcast::Sender<RobotStatusUpdate>,
     pub notification_sender: broadcast::Sender<RobotNotification>,
     pub robot_url: Arc<RwLock<Option<String>>>,
@@ -33,6 +35,7 @@ pub struct LockInfo {
 impl SharedRobotState {
     pub fn new() -> Self {
         let (command_tx, _) = broadcast::channel(100);
+        let (audio_tx, _) = broadcast::channel(200);
         let (status_tx, _) = broadcast::channel(200);
         let (notification_tx, _) = broadcast::channel(200);
         Self {
@@ -40,6 +43,8 @@ impl SharedRobotState {
             last_state_update: Arc::new(RwLock::new(None)),
             manual_lock: Arc::new(RwLock::new(None)),
             command_sender: command_tx,
+            audio_sender: audio_tx,
+            audio_streaming: Arc::new(RwLock::new(false)),
             status_sender: status_tx,
             notification_sender: notification_tx,
             robot_url: Arc::new(RwLock::new(None)),
