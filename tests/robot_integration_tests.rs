@@ -242,12 +242,12 @@ async fn test_get_robot_debug_requires_admin_and_merges_robot_status() {
     assert_eq!(debug["sensors"]["power"]["voltageV"], 12.4);
     assert_eq!(
         debug["sensors"]["gyroscope"]["source"],
-        "unavailable_until_firmware"
+        String::from("unavailable")
     );
     assert!(debug["sensors"]["gyroscope"]["xDps"].is_null());
     assert_eq!(
         debug["sensors"]["rfid"]["source"],
-        "unavailable_until_firmware"
+        String::from("unavailable")
     );
     assert!(debug["sensors"]["rfid"]["lastReadUuid"].is_null());
 }
