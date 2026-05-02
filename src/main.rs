@@ -7,6 +7,7 @@ const STATIC_ROUTE_NODES: &[(&str, &str)] = &[
     ("home", "Home"),
     ("kitchen", "Kitchen"),
     ("office", "Office"),
+    ("grave", "Grave"),
 ];
 
 #[tokio::main]
