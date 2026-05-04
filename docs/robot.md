@@ -156,6 +156,7 @@ Tagged JSON with `command`:
 - `NAVIGATE`
 - `CANCEL`
 - `DRIVE_COMMAND`
+- `SET_MANUAL_SPEED_CAP`
 - `LED`
 - `AUDIO_BEEP`
 - `AUDIO_VOLUME`
@@ -167,6 +168,30 @@ Example:
 ```json
 { "command": "NAVIGATE", "start": "home", "destination": "office" }
 ```
+
+### `SET_MANUAL_SPEED_CAP` command
+
+Limits manual joystick output on the robot side without changing the browser's `DRIVE_COMMAND` payloads.
+
+Payload:
+
+```json
+{
+  "command": "SET_MANUAL_SPEED_CAP",
+  "max_speed_percent": 60
+}
+```
+
+Fields:
+
+- `max_speed_percent` (`number`, required): requested manual speed cap as a percentage of normal manual-drive output.
+
+Behavior:
+
+- The firmware clamps values to `10..100`.
+- `100` means full manual-drive output.
+- `50` means a full joystick command only produces half of the normal manual-drive output on the robot.
+- The web dashboard defaults to `60` and sends that value after each successful `/ws/drive/manual` connection so each manual-control session starts from a safe default.
 
 ### `LED` command
 
@@ -533,7 +558,7 @@ Behavior:
 - does not stream status/notifications
 - Viewer connections are accepted, but all incoming commands are ignored
 - Operator commands require a valid, unexpired lock held by that same operator
-- Operator can only send manual drive commands (`DRIVE_COMMAND`)
+- Operator can only send manual drive commands (`DRIVE_COMMAND`, `SET_MANUAL_SPEED_CAP`)
 - Operator cannot send `NAVIGATE`, `CANCEL`, `LED`, `AUDIO_BEEP`, or `AUDIO_VOLUME`
 - Admin can send all commands
 - Admin `NAVIGATE`:

@@ -98,7 +98,7 @@ pub struct RobotNode {
     pub label: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(tag = "command")]
 pub enum RobotCommand {
     #[serde(rename = "NAVIGATE")]
@@ -110,6 +110,8 @@ pub enum RobotCommand {
         linear_velocity: f64,
         angular_velocity: f64,
     },
+    #[serde(rename = "SET_MANUAL_SPEED_CAP")]
+    SetManualSpeedCap { max_speed_percent: u8 },
     #[serde(rename = "LED")]
     Led {
         enabled: bool,

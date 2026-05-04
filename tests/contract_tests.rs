@@ -45,3 +45,27 @@ fn test_robot_command_serialization() {
     assert_eq!(json_val["start"], "home");
     assert_eq!(json_val["destination"], "office");
 }
+
+#[test]
+fn test_set_manual_speed_cap_contract() {
+    let cmd = RobotCommand::SetManualSpeedCap {
+        max_speed_percent: 60,
+    };
+
+    let json_val = serde_json::to_value(&cmd).expect("Failed to serialize");
+    assert_eq!(json_val["command"], "SET_MANUAL_SPEED_CAP");
+    assert_eq!(json_val["max_speed_percent"], 60);
+
+    let parsed: RobotCommand = serde_json::from_value(json!({
+        "command": "SET_MANUAL_SPEED_CAP",
+        "max_speed_percent": 35
+    }))
+    .expect("Failed to deserialize");
+
+    assert_eq!(
+        parsed,
+        RobotCommand::SetManualSpeedCap {
+            max_speed_percent: 35
+        }
+    );
+}

@@ -2,13 +2,30 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use chrono::Utc;
+use chrono::{Duration as ChronoDuration, Utc};
+use futures::SinkExt;
+use tokio::{
+    net::TcpListener,
+    time::{timeout, Duration},
+};
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tower::ServiceExt;
 use uuid::Uuid;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod common;
+
+async fn spawn_router_server(router: axum::Router) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+
+    format!("ws://{addr}")
+}
 
 async fn insert_test_user(
     app: &common::TestApp,
@@ -327,4 +344,113 @@ async fn test_get_robot_debug_degrades_when_robot_status_unreachable() {
     assert_eq!(debug["sensors"]["light"]["source"], "table_state");
     assert_eq!(debug["sensors"]["infrared"]["front"], true);
     assert_eq!(debug["sensors"]["power"]["currentA"], 0.8);
+}
+
+#[tokio::test]
+async fn test_manual_ws_operator_forwards_set_manual_speed_cap() {
+    let app = match common::setup_test_app().await {
+        Ok(app) => app,
+        Err(e) => {
+            eprintln!("Skipping test_manual_ws_operator_forwards_set_manual_speed_cap: {e}");
+            return;
+        }
+    };
+
+    let operator_id = Uuid::new_v4();
+    {
+        let mut lock = app.state.robot_state.manual_lock.write().await;
+        *lock = Some(backend::robot::state::LockInfo {
+            holder_id: operator_id,
+            holder_name: "Operator User".to_string(),
+            expires_at: Utc::now() + ChronoDuration::seconds(30),
+        });
+    }
+
+    let token = backend::auth::security::create_jwt(
+        &operator_id.to_string(),
+        "Operator User",
+        "Operator",
+        "test_secret",
+        1,
+    )
+    .unwrap();
+
+    let mut command_rx = app.state.robot_state.command_sender.subscribe();
+    let ws_base = spawn_router_server(app.router.clone()).await;
+    let (mut socket, _) = connect_async(format!("{ws_base}/ws/drive/manual?token={token}"))
+        .await
+        .unwrap();
+
+    socket
+        .send(Message::Text(
+            serde_json::json!({
+                "command": "SET_MANUAL_SPEED_CAP",
+                "max_speed_percent": 55
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+    let forwarded = timeout(Duration::from_secs(2), command_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        forwarded,
+        backend::robot::models::RobotCommand::SetManualSpeedCap {
+            max_speed_percent: 55
+        }
+    );
+
+    let _ = socket.close(None).await;
+}
+
+#[tokio::test]
+async fn test_manual_ws_viewer_cannot_send_set_manual_speed_cap() {
+    let app = match common::setup_test_app().await {
+        Ok(app) => app,
+        Err(e) => {
+            eprintln!("Skipping test_manual_ws_viewer_cannot_send_set_manual_speed_cap: {e}");
+            return;
+        }
+    };
+
+    let viewer_id = Uuid::new_v4();
+    let token = backend::auth::security::create_jwt(
+        &viewer_id.to_string(),
+        "Viewer User",
+        "Viewer",
+        "test_secret",
+        1,
+    )
+    .unwrap();
+
+    let mut command_rx = app.state.robot_state.command_sender.subscribe();
+    let ws_base = spawn_router_server(app.router.clone()).await;
+    let (mut socket, _) = connect_async(format!("{ws_base}/ws/drive/manual?token={token}"))
+        .await
+        .unwrap();
+
+    socket
+        .send(Message::Text(
+            serde_json::json!({
+                "command": "SET_MANUAL_SPEED_CAP",
+                "max_speed_percent": 70
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+    let recv_result = timeout(Duration::from_millis(300), command_rx.recv()).await;
+    assert!(
+        recv_result.is_err(),
+        "viewer command should not be forwarded"
+    );
+
+    let _ = socket.close(None).await;
 }
