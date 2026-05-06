@@ -9,6 +9,10 @@ pub enum LedMode {
     Breathing,
     Loop,
     Rainbow,
+    ColorWipe,
+    TheaterChase,
+    Scanner,
+    Sparkle,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -121,6 +125,11 @@ pub enum RobotCommand {
         g: u8,
         b: u8,
         brightness: u8,
+    },
+    #[serde(rename = "LED_AUTO")]
+    LedAuto {
+        enabled: bool,
+        lux_threshold: f32,
     },
     #[serde(rename = "AUDIO_BEEP")]
     AudioBeep { hz: u32, ms: u32 },

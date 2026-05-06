@@ -158,6 +158,7 @@ Tagged JSON with `command`:
 - `DRIVE_COMMAND`
 - `SET_MANUAL_SPEED_CAP`
 - `LED`
+- `LED_AUTO`
 - `AUDIO_BEEP`
 - `AUDIO_VOLUME`
 - `AUDIO_STREAM_START`
@@ -224,6 +225,36 @@ Supported modes:
 - `breathing`: fades brightness up/down using the base color.
 - `loop`: a single “chasing” pixel looping around the strip using the base color.
 - `rainbow`: cycles through all colors.
+- `color_wipe`: fills the strip pixel by pixel using the base color.
+- `theater_chase`: moves every third pixel for a marquee-style chase using the base color.
+- `scanner`: bounces one pixel back and forth using the base color.
+- `sparkle`: randomly flashes small groups of pixels using the base color.
+
+### `LED_AUTO` command
+
+Controls automatic dark-triggered LED behavior.
+
+Payload:
+
+```json
+{
+  "command": "LED_AUTO",
+  "enabled": true,
+  "lux_threshold": 25
+}
+```
+
+Fields:
+
+- `enabled` (`boolean`, required): enables/disables automatic light-on behavior.
+- `lux_threshold` (`number`, required): ambient lux threshold for automatic night-light behavior.
+
+Behavior:
+
+- The firmware clamps `lux_threshold` to `0..1000`.
+- Automatic behavior turns the LED on when measured lux is below the configured threshold.
+- Automatic behavior turns the LED off again when measured lux is at or above the configured threshold.
+- Automatic off only applies to LEDs that were turned on by automatic behavior. If a user turns the LED on manually with `LED`, the automatic threshold will not turn that manual LED state off.
 
 ### `AUDIO_STREAM_START` / `AUDIO_STREAM_STOP`
 

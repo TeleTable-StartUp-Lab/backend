@@ -190,6 +190,7 @@ async fn handle_manual_socket(mut socket: WebSocket, state: Arc<AppState>, claim
                     && matches!(
                         cmd,
                         RobotCommand::Led { .. }
+                            | RobotCommand::LedAuto { .. }
                             | RobotCommand::AudioBeep { .. }
                             | RobotCommand::AudioVolume { .. }
                             | RobotCommand::AudioStreamStart { .. }
