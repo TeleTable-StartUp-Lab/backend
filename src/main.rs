@@ -4,10 +4,21 @@ use backend::{
 use std::sync::Arc;
 
 const STATIC_ROUTE_NODES: &[(&str, &str)] = &[
-    ("home", "Home"),
-    ("kitchen", "Kitchen"),
-    ("office", "Office"),
-    ("grave", "Grave"),
+    ("apotheke", "Apotheke"),
+    ("node6", "Node 6"),
+    ("raum6", "Raum 6"),
+    ("node5", "Node 5"),
+    ("node7", "Node 7"),
+    ("raum5", "Raum 5"),
+    ("node4", "Node 4"),
+    ("raum3", "Raum 3"),
+    ("node3", "Node 3"),
+    ("raum4", "Raum 4"),
+    ("node2", "Node 2"),
+    ("raum2", "Raum 2"),
+    ("node1", "Node 1"),
+    ("raum1", "Raum 1"),
+    ("mensa", "Mensa"),
 ];
 
 #[tokio::main]
