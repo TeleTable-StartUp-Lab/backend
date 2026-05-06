@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 const STATIC_ROUTE_NODES: &[(&str, &str)] = &[
     ("apotheke", "Apotheke"),
-    ("node6", "Node 6"),
     ("raum6", "Raum 6"),
     ("raum5", "Raum 5"),
     ("raum3", "Raum 3"),
